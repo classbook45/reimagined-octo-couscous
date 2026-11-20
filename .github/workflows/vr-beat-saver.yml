@@ -91,7 +91,7 @@ jobs:
         run: |
           mkdir -p src artifacts reports
           cat > operation.py <<'PY'
-          import json, os, pathlib, shutil, subprocess, sys
+          import json, os, pathlib, shutil, struct, subprocess, sys, zipfile
 
           ROOT = pathlib.Path.cwd()
           SRC = ROOT / "src"
@@ -229,7 +229,20 @@ jobs:
           source_inventory = all_projects and all(item["stage"] != "clone" for item in summary)
           dependency_alignment = all_projects and all(item["stage"] in ("compile", "package", "complete") for item in summary)
           source_migration = all_projects and all(any(x.startswith("Applied repository compatibility patch") for x in item["changes"]) for item in summary)
-          qmod_count = len(list(ARTIFACTS.glob("*.qmod")))
+          qmods = list(ARTIFACTS.glob("*.qmod"))
+          qmod_count = len(qmods)
+          def is_arm64_qmod(path):
+              try:
+                  with zipfile.ZipFile(path) as archive:
+                      for name in archive.namelist():
+                          if name.endswith(".so"):
+                              data = archive.read(name)
+                              if len(data) >= 20 and data[:4] == b"\\x7fELF" and data[4] == 2 and data[5] == 1 and struct.unpack("<H", data[18:20])[0] == 183:
+                                  return True
+              except (zipfile.BadZipFile, OSError):
+                  return False
+              return False
+          validated_qmods = sum(1 for qmod in qmods if is_arm64_qmod(qmod))
           all_built = all_projects and all(item["success"] for item in summary)
           milestone_checks = [
               ("1. Workflow and toolchain baseline", pathlib.Path(os.environ["ANDROID_NDK_HOME"], "source.properties").exists() and shutil.which("qpm") is not None),
@@ -240,13 +253,14 @@ jobs:
               ("6. Tracks build", by_name.get("Tracks", {}).get("success", False)),
               ("7. Chroma build", by_name.get("Chroma", {}).get("success", False)),
               ("8. NoodleExtensions build", by_name.get("NoodleExtensions", {}).get("success", False)),
-              ("9. QMOD package validation", all_built and qmod_count >= 4),
-              ("10. Release bundle validation", all_built and qmod_count >= 4 and (ARTIFACTS / "operation-beat-saver-report.txt").exists()),
+              ("9. QMOD package validation", all_built and qmod_count >= 4 and validated_qmods >= 4),
+              ("10. Release bundle validation", all_built and qmod_count >= 4 and validated_qmods >= 4 and (ARTIFACTS / "operation-beat-saver-report.txt").exists()),
           ]
           reached = sum(1 for _, ok in milestone_checks if ok)
           lines = [f"Target Beat Saber package: {os.environ['PACKAGE_VERSION']}",
                    f"CORDL: {CORDL}", f"Hook: {HOOK}", f"NDK: {os.environ['ANDROID_NDK_VERSION']}", "",
-                   f"MILESTONE SCORE: {reached}/{len(milestone_checks)}"]
+                   f"MILESTONE SCORE: {reached}/{len(milestone_checks)}",
+                   f"QMOD files: {qmod_count}; valid AArch64 native payloads: {validated_qmods}"]
           for label, ok in milestone_checks:
               lines.append(f"[{'PASS' if ok else 'PENDING/FAIL'}] {label}")
           lines.append("")
