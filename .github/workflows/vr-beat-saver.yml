@@ -51,6 +51,7 @@ jobs:
         uses: dtolnay/rust-toolchain@stable
       - name: Install cargo-ndk
         run: |
+          rustup target add aarch64-linux-android
           cargo install cargo-ndk --locked
           cargo ndk --version
 
@@ -201,6 +202,35 @@ jobs:
               if rc:
                   record["errors"].append("QPM dependency resolution failed")
                   (REPORTS / f"{name}.log").write_text(restore_log)
+                  summary.append(record)
+                  continue
+
+              # Verify that the lockfile now contains the requested generation,
+              # rather than silently accepting the old 6.x / 4008 headers.
+              shared_after_restore = json.loads(shared.read_text()) if shared.exists() else {}
+              resolved = {
+                  item.get("dependency", {}).get("id"): item.get("version", "")
+                  for item in shared_after_restore.get("restoredDependencies", [])
+              }
+              def version_tuple(value):
+                  parts = []
+                  for part in value.split("."):
+                      digits = "".join(ch for ch in part if ch.isdigit())
+                      if not digits:
+                          break
+                      parts.append(int(digits))
+                  return tuple((parts + [0, 0, 0])[:3])
+              required = {"beatsaber-hook": (9, 1, 1), "bs-cordl": (4503, 0, 0)}
+              bad = []
+              for dep_id, minimum in required.items():
+                  actual = resolved.get(dep_id, "")
+                  if not actual or version_tuple(actual) < minimum:
+                      bad.append(f"{dep_id}: expected >= {'.'.join(map(str, minimum))}, resolved {actual or 'missing'}")
+              record["changes"].append("Resolved dependency versions: " + ", ".join(f"{k}={v}" for k, v in resolved.items() if k in required))
+              if bad:
+                  record["stage"] = "dependency-restore"
+                  record["errors"].extend(bad)
+                  (REPORTS / f"{name}.log").write_text(restore_log + "\\n" + "\\n".join(bad))
                   summary.append(record)
                   continue
 
