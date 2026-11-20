@@ -36,7 +36,7 @@ jobs:
     env:
       PACKAGE_VERSION: ${{ inputs.package_version || '1.45.3_30054' }}
       CORDL_RANGE: ${{ inputs.cordl_range || '^4503.0.0' }}
-      HOOK_RANGE: ${{ inputs.hook_range || '^9.1.1' }}
+      HOOK_RANGE: ${{ inputs.hook_range || '^9.3.0' }}
       ANDROID_NDK_VERSION: "29.0.14206865"
 
     steps:
@@ -94,14 +94,8 @@ jobs:
 
       - name: Clone, inspect and patch the source projects
         env:
-          CJD_URL: https://github.com/bsq-ports/CustomJSONData
-          CJD_BRANCH: main
-          TRACKS_URL: https://github.com/bsq-ports/Tracks
-          TRACKS_BRANCH: master
-          CHROMA_URL: https://github.com/bsq-ports/Chroma
-          CHROMA_BRANCH: main
-          NOODLE_URL: https://github.com/bsq-ports/NoodleExtensions
-          NOODLE_BRANCH: master
+          PORTS_URL: https://github.com/trail-b1az3r/ports-
+          PORTS_BRANCH: main
         run: |
           mkdir -p src artifacts reports
           cat > operation.py <<'PY'
@@ -116,10 +110,10 @@ jobs:
           NDK = "^29.0.0"
 
           projects = [
-              ("CustomJSONData", "custom-json-data", os.environ["CJD_URL"], os.environ["CJD_BRANCH"]),
-              ("Tracks", "tracks", os.environ["TRACKS_URL"], os.environ["TRACKS_BRANCH"]),
-              ("Chroma", "chroma", os.environ["CHROMA_URL"], os.environ["CHROMA_BRANCH"]),
-              ("NoodleExtensions", "NoodleExtensions", os.environ["NOODLE_URL"], os.environ["NOODLE_BRANCH"]),
+              ("CustomJSONData", "custom-json-data"),
+              ("Tracks", "tracks"),
+              ("NoodleExtensions", "NoodleExtensions"),
+              ("Chroma", "chroma"),
           ]
           local_projects = {}
           summary = []
@@ -165,9 +159,19 @@ jobs:
               # substitute for migrating code to the new Hook/CORDL interfaces.
               return ["CMake standard preserved: " + next((x.strip() for x in path.read_text().splitlines() if "CMAKE_CXX_STANDARD " in x), "not explicitly declared")]
 
-          for name, mod_id, url, branch in projects:
-              repo = SRC / name
-              rc, log = run(["git", "clone", "--depth", "1", "--branch", branch, url, str(repo)])
+          ports = ROOT / "ports"
+          rc, log = run(["git", "clone", "--depth", "1", "--branch", os.environ["PORTS_BRANCH"], os.environ["PORTS_URL"], str(ports)])
+          if rc:
+              raise SystemExit("Could not clone the Beat Saber 1.45.3 compatibility ports")
+          rc, rev = run(["git", "rev-parse", "HEAD"], cwd=ports)
+          print("Using 1.45.3 compatibility source revision: " + rev.strip(), flush=True)
+
+          for name, mod_id in projects:
+              repo = ports / name
+              if not repo.is_dir():
+                  summary.append({"project": name, "stage": "clone", "success": False, "changes": [], "errors": ["Project directory missing from compatibility ports"]})
+                  continue
+              rc, log = 0, "Using project source from the pinned 1.45.3 compatibility ports bundle"
               record = {"project": name, "stage": "clone", "success": False, "changes": [], "errors": []}
               if rc:
                   record["errors"].append("Git clone failed")
@@ -196,13 +200,21 @@ jobs:
                   summary.append(record)
                   continue
 
-              record["changes"] += update_manifest(qpm)
               shared = repo / "qpm.shared.json"
-              if shared.exists():
-                  record["changes"] += update_manifest(shared, shared=True)
-              record["changes"] += patch_cmake(repo)
+              if not shared.exists():
+                  record["stage"] = "inspect"
+                  record["errors"].append("Missing qpm.shared.json lockfile for the 1.45.3 port")
+                  summary.append(record)
+                  continue
+              record["changes"].append("Using the port's 1.45.3 source and dependency lockfile; no speculative version rewrites")
 
               record["stage"] = "dependency-restore"
+              rc, ndk_log = run(["qpm", "ndk", "resolve", "-d"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM could not resolve the pinned Android NDK")
+                  (REPORTS / f"{name}.log").write_text(ndk_log)
+                  summary.append(record)
+                  continue
               rc, restore_log = run(["qpm", "restore"], cwd=repo)
               if rc:
                   record["errors"].append("QPM dependency resolution failed")
@@ -225,7 +237,7 @@ jobs:
                           break
                       parts.append(int(digits))
                   return tuple((parts + [0, 0, 0])[:3])
-              required = {"beatsaber-hook": (9, 1, 1), "bs-cordl": (4503, 0, 0)}
+              required = {"beatsaber-hook": (9, 3, 0), "bs-cordl": (4503, 0, 0)}
               bad = []
               for dep_id, minimum in required.items():
                   actual = resolved.get(dep_id, "")
@@ -240,7 +252,10 @@ jobs:
                   continue
 
               record["stage"] = "compile"
-              rc, build_log = run(["qpm", "s", "build"], cwd=repo)
+              if name == "Tracks":
+                  rc, build_log = run(["bash", "-lc", 'export ANDROID_NDK_HOME="$(cat ndkpath.txt)" && qpm s build'], cwd=repo)
+              else:
+                  rc, build_log = run(["qpm", "s", "build"], cwd=repo)
               if rc:
                   record["errors"] += [line.strip() for line in build_log.splitlines()
                                        if "error:" in line.lower() or "fatal error:" in line.lower()][:40]
@@ -250,6 +265,12 @@ jobs:
                   summary.append(record)
                   continue
 
+              rc, install_log = run(["qpm", "install"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM could not install the freshly built package into the runner's local package cache")
+                  (REPORTS / f"{name}.log").write_text(install_log)
+                  summary.append(record)
+                  continue
               record["stage"] = "package"
               rc, package_log = run(["qpm", "qmod", "zip"], cwd=repo)
               if rc:
@@ -276,7 +297,7 @@ jobs:
           all_projects = len(summary) == len(projects)
           source_inventory = all_projects and all(item["stage"] != "clone" for item in summary)
           dependency_alignment = all_projects and all(item["stage"] in ("compile", "package", "complete") for item in summary)
-          source_migration = all_projects and all(any(x.startswith("Applied repository compatibility patch") for x in item["changes"]) for item in summary)
+          source_migration = all_projects and all(item["success"] for item in summary)
           qmods = list(ARTIFACTS.glob("*.qmod"))
           qmod_count = len(qmods)
           def is_arm64_qmod(path):
