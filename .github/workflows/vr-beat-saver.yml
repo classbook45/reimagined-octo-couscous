@@ -91,7 +91,7 @@ jobs:
         run: |
           mkdir -p src artifacts reports
           cat > operation.py <<'PY'
-          import json, os, pathlib, subprocess, sys
+          import json, os, pathlib, shutil, subprocess, sys
 
           ROOT = pathlib.Path.cwd()
           SRC = ROOT / "src"
@@ -166,7 +166,7 @@ jobs:
                       record["errors"].append("Patch did not apply cleanly; refusing to build unpatched source")
                       (REPORTS / f"{name}.log").write_text(patch_log)
                       summary.append(record)
-                      break
+                      continue
               else:
                   record["changes"].append("No project-specific C++ source patch supplied; using upstream source")
 
@@ -224,15 +224,39 @@ jobs:
               summary.append(record)
 
           (REPORTS / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+          by_name = {item["project"]: item for item in summary}
+          all_projects = len(summary) == len(projects)
+          source_inventory = all_projects and all(item["stage"] != "clone" for item in summary)
+          dependency_alignment = all_projects and all(item["stage"] in ("compile", "package", "complete") for item in summary)
+          source_migration = all_projects and all(any(x.startswith("Applied repository compatibility patch") for x in item["changes"]) for item in summary)
+          qmod_count = len(list(ARTIFACTS.glob("*.qmod")))
+          all_built = all_projects and all(item["success"] for item in summary)
+          milestone_checks = [
+              ("1. Workflow and toolchain baseline", pathlib.Path(os.environ["ANDROID_NDK_HOME"], "source.properties").exists() and shutil.which("qpm") is not None),
+              ("2. Source inventory", source_inventory),
+              ("3. Dependency graph alignment", dependency_alignment),
+              ("4. Source/API migration", source_migration),
+              ("5. CustomJSONData build", by_name.get("CustomJSONData", {}).get("success", False)),
+              ("6. Tracks build", by_name.get("Tracks", {}).get("success", False)),
+              ("7. Chroma build", by_name.get("Chroma", {}).get("success", False)),
+              ("8. NoodleExtensions build", by_name.get("NoodleExtensions", {}).get("success", False)),
+              ("9. QMOD package validation", all_built and qmod_count >= 4),
+              ("10. Release bundle validation", all_built and qmod_count >= 4 and (ARTIFACTS / "operation-beat-saver-report.txt").exists()),
+          ]
+          reached = sum(1 for _, ok in milestone_checks if ok)
           lines = [f"Target Beat Saber package: {os.environ['PACKAGE_VERSION']}",
-                   f"CORDL: {CORDL}", f"Hook: {HOOK}", f"NDK: {os.environ['ANDROID_NDK_VERSION']}", ""]
+                   f"CORDL: {CORDL}", f"Hook: {HOOK}", f"NDK: {os.environ['ANDROID_NDK_VERSION']}", "",
+                   f"MILESTONE SCORE: {reached}/{len(milestone_checks)}"]
+          for label, ok in milestone_checks:
+              lines.append(f"[{'PASS' if ok else 'PENDING/FAIL'}] {label}")
+          lines.append("")
           for item in summary:
               lines.append(f"{item['project']}: {'PASS' if item['success'] else 'FAIL'} at {item['stage']}")
               lines.extend("  CHANGE: " + x for x in item["changes"])
               lines.extend("  ERROR: " + x for x in item["errors"])
           (ARTIFACTS / "operation-beat-saver-report.txt").write_text("\n".join(lines) + "\n")
           print("\n".join(lines))
-          if not summary or any(not x["success"] for x in summary):
+          if not summary or not all_built or reached != len(milestone_checks):
               sys.exit(1)
           PY
           python3 operation.py
