@@ -217,6 +217,17 @@ jobs:
                   (REPORTS / f"{name}.log").write_text(ndk_log)
                   summary.append(record)
                   continue
+              # Some upstream build scripts hard-code scripts/ndkpath.txt,
+              # while QPM resolves the NDK path at the project root.
+              if name == "Chroma":
+                  root_ndk = repo / "ndkpath.txt"
+                  if root_ndk.exists():
+                      scripts_dir = repo / "scripts"
+                      scripts_dir.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(root_ndk, scripts_dir / "ndkpath.txt")
+              # QPM's package cache expects the declared sharedDir to exist,
+              # even for ports whose source tree only contains include/ headers.
+              (repo / "shared").mkdir(parents=True, exist_ok=True)
               rc, restore_log = run(["qpm", "restore"], cwd=repo)
               if rc:
                   record["errors"].append("QPM dependency resolution failed")
