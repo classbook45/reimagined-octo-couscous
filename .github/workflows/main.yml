@@ -307,6 +307,54 @@ jobs:
 
               save(qpm, data)
 
+              cmake_file = repo / "CMakeLists.txt"
+              if cmake_file.exists():
+                  cmake_text = cmake_file.read_text()
+                  original_cmake = cmake_text
+
+                  cmake_text = re.sub(
+                      r"(?m)^(\\s*set\\(CMAKE_CXX_STANDARD)\\s+\\d+(\\s*\\))",
+                      r"\\g<1> 23\\2",
+                      cmake_text,
+                  )
+                  cmake_text = re.sub(
+                      r"(?m)^(\\s*set\\(CMAKE_CXX_STANDARD_REQUIRED)\\s+[^)\\s]+(\\s*\\))",
+                      r"\\g<1> ON\\2",
+                      cmake_text,
+                  )
+
+                  if "CMAKE_CXX_STANDARD" not in cmake_text:
+                      cmake_text, inserted = re.subn(
+                          r"(?m)^(project\\([^\\n]+\\)\\s*)$",
+                          r"\\1\\n\\nset(CMAKE_CXX_STANDARD 23)\\nset(CMAKE_CXX_STANDARD_REQUIRED ON)",
+                          cmake_text,
+                          count=1,
+                      )
+
+                  if cmake_text != original_cmake:
+                      cmake_file.write_text(cmake_text)
+                      notes.append("CMake C++ standard set to C++23")
+
+              build_script = repo / "scripts" / "build.ps1"
+              if build_script.exists():
+                  script_text = build_script.read_text()
+                  original_script = script_text
+
+                  script_text = re.sub(
+                      r"(?m)^(& cmake -G .* -B build)\\s*$",
+                      r"\\1\\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                      script_text,
+                  )
+                  script_text = re.sub(
+                      r"(?m)^(& cmake --build ./build)\\s*$",
+                      r"\\1\\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                      script_text,
+                  )
+
+                  if script_text != original_script:
+                      build_script.write_text(script_text)
+                      notes.append("PowerShell build script now propagates CMake failures")
+
           def cluster_errors(log):
               errors = []
               seen = set()
@@ -390,12 +438,6 @@ jobs:
                   ["qpm", "s", "build"],
                   cwd=repo,
               )
-
-              if p.returncode != 0:
-                  p, output = run(
-                      ["qpm", "build"],
-                      cwd=repo,
-                  )
 
               if p.returncode != 0:
                   result["stage"] = "build"
@@ -535,7 +577,6 @@ jobs:
           CHROMA_BRANCH: ${{ inputs.chroma_branch }}
           NOODLE_URL: ${{ inputs.noodle_url }}
           NOODLE_BRANCH: ${{ inputs.noodle_branch }}
-          CXXFLAGS: -std=c++23
         run: python3 port_all.py
 
       - name: Upload artifacts
