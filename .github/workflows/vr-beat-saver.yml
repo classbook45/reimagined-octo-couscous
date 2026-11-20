@@ -184,11 +184,17 @@ jobs:
               # Apply project-specific, reviewed source patches when present.
               patch = ROOT / ".github" / "operation-beat-saver" / "patches" / f"{name}.patch"
               if patch.exists() and patch.stat().st_size:
-                  rc, patch_log = run(["git", "apply", "--verbose", f"--directory={name}", str(patch)], cwd=repo)
+                  rc, patch_log = run(["git", "apply", "--verbose", str(patch)], cwd=repo)
                   record["changes"].append("Applied repository compatibility patch")
                   if rc:
                       record["stage"] = "source-patch"
                       record["errors"].append("Patch did not apply cleanly; refusing to build unpatched source")
+                      (REPORTS / f"{name}.log").write_text(patch_log)
+                      summary.append(record)
+                      continue
+                  if name == "Chroma" and not (repo / "CMakeLists.txt").is_file():
+                      record["stage"] = "source-patch"
+                      record["errors"].append("Chroma patch reported success but did not create the project-root CMakeLists.txt")
                       (REPORTS / f"{name}.log").write_text(patch_log)
                       summary.append(record)
                       continue
