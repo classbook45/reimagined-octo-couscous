@@ -1,6 +1,11 @@
 name: VR Beat Saver — Operation Beat Saver
 
 on:
+  push:
+    branches: [main]
+    paths:
+      - '.github/workflows/vr-beat-saver.yml'
+      - '.github/operation-beat-saver/patches/**'
   workflow_dispatch:
     inputs:
       package_version:
