@@ -3,7 +3,7 @@ new file mode 100644
 index 0000000..07e6a63
 --- /dev/null
 +++ b/CMakeLists.txt
-@@ -0,0 +1,95 @@
+@@ -0,0 +1,64 @@
 +# include some defines automatically made by qpm
 +set(ANDROID_USE_LEGACY_TOOLCHAIN_FILE OFF)
 +include(qpm_defines.cmake)
