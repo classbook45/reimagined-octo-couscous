@@ -47,6 +47,14 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Set up Rust and cargo-ndk
+        uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-ndk
+        run: |
+          cargo install cargo-ndk --locked
+          cargo ndk --version
+
+
       - name: Install Android SDK and NDK 29
         uses: android-actions/setup-android@v3
         with:
@@ -135,6 +143,11 @@ jobs:
                       edits.append(f"{dep_id} => local build {local_projects[dep_id]}")
               workspace = cfg.setdefault("workspace", {})
               workspace["ndk"] = NDK
+              # qpm.shared.json carries a restoredDependencies lock snapshot.
+              # Drop it after changing version ranges so QPM cannot silently reuse
+              # the old Hook 6.x / CORDL 4008 headers.
+              if shared:
+                  data.pop("restoredDependencies", None)
               path.write_text(json.dumps(data, indent=2) + "\n")
               return edits
 
