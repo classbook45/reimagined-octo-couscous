@@ -535,6 +535,7 @@ jobs:
           CHROMA_BRANCH: ${{ inputs.chroma_branch }}
           NOODLE_URL: ${{ inputs.noodle_url }}
           NOODLE_BRANCH: ${{ inputs.noodle_branch }}
+          CXXFLAGS: -std=c++23
         run: python3 port_all.py
 
       - name: Upload artifacts
