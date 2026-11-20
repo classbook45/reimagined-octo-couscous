@@ -72,6 +72,12 @@ jobs:
           sudo install -m 755 "$QPM_BIN" /usr/local/bin/qpm
           qpm --version
 
+      - name: Publish milestone roadmap
+        run: |
+          mkdir -p reports
+          cp .github/operation-beat-saver/MILESTONES.md reports/MILESTONES.md
+          cat reports/MILESTONES.md
+
       - name: Clone, inspect and patch the source projects
         env:
           CJD_URL: https://github.com/bsq-ports/CustomJSONData
@@ -148,7 +154,7 @@ jobs:
                   record["errors"].append("Git clone failed")
                   (REPORTS / f"{name}.log").write_text(log)
                   summary.append(record)
-                  break
+                  continue
 
               # Apply project-specific, reviewed source patches when present.
               patch = ROOT / ".github" / "operation-beat-saver" / "patches" / f"{name}.patch"
@@ -169,7 +175,7 @@ jobs:
                   record["stage"] = "inspect"
                   record["errors"].append("Missing qpm.json")
                   summary.append(record)
-                  break
+                  continue
 
               record["changes"] += update_manifest(qpm)
               shared = repo / "qpm.shared.json"
@@ -183,7 +189,7 @@ jobs:
                   record["errors"].append("QPM dependency resolution failed")
                   (REPORTS / f"{name}.log").write_text(restore_log)
                   summary.append(record)
-                  break
+                  continue
 
               record["stage"] = "compile"
               rc, build_log = run(["qpm", "s", "build"], cwd=repo)
@@ -194,7 +200,7 @@ jobs:
                       record["errors"].append("Compiler/build command failed; see full log")
                   (REPORTS / f"{name}.log").write_text(build_log)
                   summary.append(record)
-                  break
+                  continue
 
               record["stage"] = "package"
               rc, package_log = run(["qpm", "qmod", "zip"], cwd=repo)
@@ -202,13 +208,13 @@ jobs:
                   record["errors"].append("QMOD packaging failed")
                   (REPORTS / f"{name}.log").write_text(package_log)
                   summary.append(record)
-                  break
+                  continue
 
               qmods = list(repo.rglob("*.qmod"))
               if not qmods:
                   record["errors"].append("Build completed but no .qmod was produced")
                   summary.append(record)
-                  break
+                  continue
               for qmod in qmods:
                   target = ARTIFACTS / qmod.name
                   target.write_bytes(qmod.read_bytes())
