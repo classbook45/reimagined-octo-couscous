@@ -77,6 +77,10 @@ jobs:
 
       - name: Setup Android SDK and NDK 29
         uses: android-actions/setup-android@v3
+        with:
+          packages: |
+            platform-tools
+            ndk;29.0.14206865
 
       - name: Install Android NDK 29
         run: |
