@@ -1,0 +1,243 @@
+name: VR Beat Saver — Operation Beat Saver
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: "Beat Saber package version"
+        required: true
+        default: "1.45.3_30054"
+      cordl_range:
+        description: "Target bs-cordl range"
+        required: true
+        default: "^4503.0.0"
+      hook_range:
+        description: "Target beatsaber-hook range"
+        required: true
+        default: "^9.1.1"
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  operation-beat-saver:
+    name: Inspect, patch and build Quest mods
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    env:
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      CORDL_RANGE: ${{ inputs.cordl_range }}
+      HOOK_RANGE: ${{ inputs.hook_range }}
+      ANDROID_NDK_VERSION: "29.0.14206865"
+
+    steps:
+      - name: Checkout workflow and compatibility patches
+        uses: actions/checkout@v4
+
+      - name: Set up Python and Java
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Install Android SDK and NDK 29
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned NDK
+        run: |
+          sdkmanager --install "platform-tools" "ndk;${ANDROID_NDK_VERSION}"
+          NDK_PATH="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          test -f "$NDK_PATH/source.properties"
+          {
+            echo "ANDROID_NDK_HOME=$NDK_PATH"
+            echo "ANDROID_NDK_ROOT=$NDK_PATH"
+            echo "ANDROID_NDK_LATEST_HOME=$NDK_PATH"
+          } >> "$GITHUB_ENV"
+          grep "Pkg.Revision" "$NDK_PATH/source.properties"
+
+      - name: Install QPM
+        run: |
+          curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-linux-x64.zip
+          unzip -oq qpm.zip -d /tmp/qpm
+          QPM_BIN="$(find /tmp/qpm -type f -name qpm -print -quit)"
+          test -n "$QPM_BIN"
+          sudo install -m 755 "$QPM_BIN" /usr/local/bin/qpm
+          qpm --version
+
+      - name: Clone, inspect and patch the source projects
+        env:
+          CJD_URL: https://github.com/bsq-ports/CustomJSONData
+          CJD_BRANCH: main
+          TRACKS_URL: https://github.com/bsq-ports/Tracks
+          TRACKS_BRANCH: master
+          CHROMA_URL: https://github.com/bsq-ports/Chroma
+          CHROMA_BRANCH: main
+          NOODLE_URL: https://github.com/bsq-ports/NoodleExtensions
+          NOODLE_BRANCH: master
+        run: |
+          mkdir -p src artifacts reports
+          cat > operation.py <<'PY'
+          import json, os, pathlib, subprocess, sys
+
+          ROOT = pathlib.Path.cwd()
+          SRC = ROOT / "src"
+          REPORTS = ROOT / "reports"
+          ARTIFACTS = ROOT / "artifacts"
+          CORDL = os.environ["CORDL_RANGE"]
+          HOOK = os.environ["HOOK_RANGE"]
+          NDK = "^29.0.0"
+
+          projects = [
+              ("CustomJSONData", "custom-json-data", os.environ["CJD_URL"], os.environ["CJD_BRANCH"]),
+              ("Tracks", "tracks", os.environ["TRACKS_URL"], os.environ["TRACKS_BRANCH"]),
+              ("Chroma", "chroma", os.environ["CHROMA_URL"], os.environ["CHROMA_BRANCH"]),
+              ("NoodleExtensions", "NoodleExtensions", os.environ["NOODLE_URL"], os.environ["NOODLE_BRANCH"]),
+          ]
+          local_projects = {}
+          summary = []
+
+          def run(args, cwd=None):
+              print("\n$ " + " ".join(map(str, args)), flush=True)
+              p = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              print(p.stdout[-12000:], flush=True)
+              return p.returncode, p.stdout
+
+          def update_manifest(path, shared=False):
+              data = json.loads(path.read_text())
+              cfg = data.get("config", data) if shared else data
+              deps = cfg.get("dependencies", [])
+              edits = []
+              for dep in deps:
+                  dep_id = dep.get("id")
+                  if dep_id == "bs-cordl":
+                      dep["versionRange"] = CORDL
+                      edits.append(f"bs-cordl => {CORDL}")
+                  elif dep_id == "beatsaber-hook":
+                      dep["versionRange"] = HOOK
+                      edits.append(f"beatsaber-hook => {HOOK}")
+                  if dep_id in local_projects:
+                      dep.setdefault("additionalData", {})["localPath"] = str(local_projects[dep_id])
+                      dep["versionRange"] = "*"
+                      edits.append(f"{dep_id} => local build {local_projects[dep_id]}")
+              workspace = cfg.setdefault("workspace", {})
+              workspace["ndk"] = NDK
+              path.write_text(json.dumps(data, indent=2) + "\n")
+              return edits
+
+          def patch_cmake(repo):
+              path = repo / "CMakeLists.txt"
+              if not path.exists():
+                  return []
+              # Keep each project's declared language standard. C++23 is not a
+              # substitute for migrating code to the new Hook/CORDL interfaces.
+              return ["CMake standard preserved: " + next((x.strip() for x in path.read_text().splitlines() if "CMAKE_CXX_STANDARD " in x), "not explicitly declared")]
+
+          for name, mod_id, url, branch in projects:
+              repo = SRC / name
+              rc, log = run(["git", "clone", "--depth", "1", "--branch", branch, url, str(repo)])
+              record = {"project": name, "stage": "clone", "success": False, "changes": [], "errors": []}
+              if rc:
+                  record["errors"].append("Git clone failed")
+                  (REPORTS / f"{name}.log").write_text(log)
+                  summary.append(record)
+                  break
+
+              # Apply project-specific, reviewed source patches when present.
+              patch = ROOT / ".github" / "operation-beat-saver" / "patches" / f"{name}.patch"
+              if patch.exists() and patch.stat().st_size:
+                  rc, patch_log = run(["git", "apply", "--verbose", str(patch)], cwd=repo)
+                  record["changes"].append("Applied repository compatibility patch")
+                  if rc:
+                      record["stage"] = "source-patch"
+                      record["errors"].append("Patch did not apply cleanly; refusing to build unpatched source")
+                      (REPORTS / f"{name}.log").write_text(patch_log)
+                      summary.append(record)
+                      break
+              else:
+                  record["changes"].append("No project-specific C++ source patch supplied; using upstream source")
+
+              qpm = repo / "qpm.json"
+              if not qpm.exists():
+                  record["stage"] = "inspect"
+                  record["errors"].append("Missing qpm.json")
+                  summary.append(record)
+                  break
+
+              record["changes"] += update_manifest(qpm)
+              shared = repo / "qpm.shared.json"
+              if shared.exists():
+                  record["changes"] += update_manifest(shared, shared=True)
+              record["changes"] += patch_cmake(repo)
+
+              record["stage"] = "dependency-restore"
+              rc, restore_log = run(["qpm", "restore"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM dependency resolution failed")
+                  (REPORTS / f"{name}.log").write_text(restore_log)
+                  summary.append(record)
+                  break
+
+              record["stage"] = "compile"
+              rc, build_log = run(["qpm", "s", "build"], cwd=repo)
+              if rc:
+                  record["errors"] += [line.strip() for line in build_log.splitlines()
+                                       if "error:" in line.lower() or "fatal error:" in line.lower()][:40]
+                  if not record["errors"]:
+                      record["errors"].append("Compiler/build command failed; see full log")
+                  (REPORTS / f"{name}.log").write_text(build_log)
+                  summary.append(record)
+                  break
+
+              record["stage"] = "package"
+              rc, package_log = run(["qpm", "qmod", "zip"], cwd=repo)
+              if rc:
+                  record["errors"].append("QMOD packaging failed")
+                  (REPORTS / f"{name}.log").write_text(package_log)
+                  summary.append(record)
+                  break
+
+              qmods = list(repo.rglob("*.qmod"))
+              if not qmods:
+                  record["errors"].append("Build completed but no .qmod was produced")
+                  summary.append(record)
+                  break
+              for qmod in qmods:
+                  target = ARTIFACTS / qmod.name
+                  target.write_bytes(qmod.read_bytes())
+              local_projects[mod_id] = repo.resolve()
+              record["stage"] = "complete"
+              record["success"] = True
+              summary.append(record)
+
+          (REPORTS / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+          lines = [f"Target Beat Saber package: {os.environ['PACKAGE_VERSION']}",
+                   f"CORDL: {CORDL}", f"Hook: {HOOK}", f"NDK: {os.environ['ANDROID_NDK_VERSION']}", ""]
+          for item in summary:
+              lines.append(f"{item['project']}: {'PASS' if item['success'] else 'FAIL'} at {item['stage']}")
+              lines.extend("  CHANGE: " + x for x in item["changes"])
+              lines.extend("  ERROR: " + x for x in item["errors"])
+          (ARTIFACTS / "operation-beat-saver-report.txt").write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          if not summary or any(not x["success"] for x in summary):
+              sys.exit(1)
+          PY
+          python3 operation.py
+
+      - name: Upload builds and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: operation-beat-saver-results
+          path: |
+            artifacts/
+            reports/
+          if-no-files-found: warn
+          retention-days: 14
