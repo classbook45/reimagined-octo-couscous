@@ -75,6 +75,9 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - name: Setup Android SDK tools
+        uses: android-actions/setup-android@v3
+
       - name: Install Android platform-tools and NDK 29
         run: |
           yes | sdkmanager --licenses
