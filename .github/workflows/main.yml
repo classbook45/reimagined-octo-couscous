@@ -82,7 +82,6 @@ jobs:
 
       - name: Install Android platform-tools and NDK 29
         run: |
-          yes | sdkmanager --licenses
           sdkmanager --install "platform-tools" "ndk;29.0.14206865"
 
           NDK_PATH="$ANDROID_SDK_ROOT/ndk/29.0.14206865"
