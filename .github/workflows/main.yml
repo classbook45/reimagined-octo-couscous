@@ -67,13 +67,18 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-
-      - name: Install tools
+         
+          - name: Install tools
         run: |
           python -m pip install --upgrade pip
-          # qpm
-          curl -fsSL https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
-          qpm --version || true
+
+          # Download latest QPM (correct asset name)
+          curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-linux-x64.zip
+          unzip -o qpm.zip -d /tmp/qpm
+          # The binary is usually just called "qpm"
+          sudo mv /tmp/qpm/qpm /usr/local/bin/qpm || sudo mv /tmp/qpm/*/qpm /usr/local/bin/qpm
+          chmod +x /usr/local/bin/qpm
+          qpm --version
 
       - name: Create port script
         run: |
