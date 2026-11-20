@@ -313,20 +313,20 @@ jobs:
                   original_cmake = cmake_text
 
                   cmake_text = re.sub(
-                      r"(?m)^(\\s*set\\(CMAKE_CXX_STANDARD)\\s+\\d+(\\s*\\))",
-                      r"\\g<1> 23\\2",
+                      r"(?m)^(\s*set\(CMAKE_CXX_STANDARD)\s+\d+(\s*\))",
+                      r"\g<1> 23\2",
                       cmake_text,
                   )
                   cmake_text = re.sub(
-                      r"(?m)^(\\s*set\\(CMAKE_CXX_STANDARD_REQUIRED)\\s+[^)\\s]+(\\s*\\))",
-                      r"\\g<1> ON\\2",
+                      r"(?m)^(\s*set\(CMAKE_CXX_STANDARD_REQUIRED)\s+[^)\s]+(\s*\))",
+                      r"\g<1> ON\2",
                       cmake_text,
                   )
 
                   if "CMAKE_CXX_STANDARD" not in cmake_text:
                       cmake_text, inserted = re.subn(
-                          r"(?m)^(project\\([^\\n]+\\)\\s*)$",
-                          r"\\1\\n\\nset(CMAKE_CXX_STANDARD 23)\\nset(CMAKE_CXX_STANDARD_REQUIRED ON)",
+                          r"(?m)^(project\([^\n]+\)\s*)$",
+                          r"\1\n\nset(CMAKE_CXX_STANDARD 23)\nset(CMAKE_CXX_STANDARD_REQUIRED ON)",
                           cmake_text,
                           count=1,
                       )
@@ -341,13 +341,13 @@ jobs:
                   original_script = script_text
 
                   script_text = re.sub(
-                      r"(?m)^(& cmake -G .* -B build)\\s*$",
-                      r"\\1\\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                      r"(?m)^(& cmake -G .* -B build)\s*$",
+                      r"\1\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                       script_text,
                   )
                   script_text = re.sub(
-                      r"(?m)^(& cmake --build ./build)\\s*$",
-                      r"\\1\\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
+                      r"(?m)^(& cmake --build ./build)\s*$",
+                      r"\1\nif ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }",
                       script_text,
                   )
 
