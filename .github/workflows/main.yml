@@ -161,7 +161,7 @@ jobs:
 
           DEP_RANGES = {
               "bs-cordl": CORDL_RANGE,
-              "beatsaber-hook": "^9.0.0",
+              "beatsaber-hook": "^6.4.2",
               "custom-types": "^0.21.2",
               "config-utils": "^3.0.0",
               "bsml": "^0.4.54",
