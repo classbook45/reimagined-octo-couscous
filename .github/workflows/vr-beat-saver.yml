@@ -19,7 +19,7 @@ on:
       hook_range:
         description: "Target beatsaber-hook range"
         required: true
-        default: "^9.1.1"
+        default: "^9.3.0"
 
 permissions:
   contents: read
@@ -52,13 +52,15 @@ jobs:
           distribution: temurin
           java-version: "17"
 
-      - name: Set up Rust and cargo-ndk
-        uses: dtolnay/rust-toolchain@stable
-      - name: Install cargo-ndk
+      - name: Set up Rust nightly and cargo-ndk
         run: |
-          rustup target add aarch64-linux-android
-          cargo install cargo-ndk --locked
+          rustup toolchain install nightly --profile minimal
+          rustup target add aarch64-linux-android --toolchain nightly
+          cargo install --locked cargo-ndk
           cargo ndk --version
+
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
 
 
       - name: Install Android SDK and NDK 29
@@ -191,7 +193,7 @@ jobs:
                       summary.append(record)
                       continue
               else:
-                  record["changes"].append("No project-specific C++ source patch supplied; using upstream source")
+                  record["changes"].append("Using the dedicated Beat Saber 1.45.3 compatibility source; no extra overlay patch needed")
 
               qpm = repo / "qpm.json"
               if not qpm.exists():
@@ -247,13 +249,13 @@ jobs:
               if bad:
                   record["stage"] = "dependency-restore"
                   record["errors"].extend(bad)
-                  (REPORTS / f"{name}.log").write_text(restore_log + "\\n" + "\\n".join(bad))
+                  (REPORTS / f"{name}.log").write_text(restore_log + "\n" + "\n".join(bad))
                   summary.append(record)
                   continue
 
               record["stage"] = "compile"
               if name == "Tracks":
-                  rc, build_log = run(["bash", "-lc", 'export ANDROID_NDK_HOME="$(cat ndkpath.txt)" && qpm s build'], cwd=repo)
+                  rc, build_log = run(["bash", "-lc", 'export RUSTUP_TOOLCHAIN=nightly && export ANDROID_NDK_HOME="$(cat ndkpath.txt)" && qpm s build'], cwd=repo)
               else:
                   rc, build_log = run(["qpm", "s", "build"], cwd=repo)
               if rc:
@@ -279,7 +281,8 @@ jobs:
                   summary.append(record)
                   continue
 
-              qmods = list(repo.rglob("*.qmod"))
+              qmod_name = json.loads(qpm.read_text()).get("workspace", {}).get("qmodOutput")
+              qmods = [p for p in repo.rglob(qmod_name)] if qmod_name else []
               if not qmods:
                   record["errors"].append("Build completed but no .qmod was produced")
                   summary.append(record)
@@ -306,7 +309,7 @@ jobs:
                       for name in archive.namelist():
                           if name.endswith(".so"):
                               data = archive.read(name)
-                              if len(data) >= 20 and data[:4] == b"\\x7fELF" and data[4] == 2 and data[5] == 1 and struct.unpack("<H", data[18:20])[0] == 183:
+                              if len(data) >= 20 and data[:4] == b"\x7fELF" and data[4] == 2 and data[5] == 1 and struct.unpack("<H", data[18:20])[0] == 183:
                                   return True
               except (zipfile.BadZipFile, OSError):
                   return False
