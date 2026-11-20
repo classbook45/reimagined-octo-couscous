@@ -1,0 +1,427 @@
+name: port-all
+
+on:
+  workflow_dispatch:
+    inputs:
+      package_version:
+        description: "full packageVersion"
+        default: "1.45.3_30054"
+        required: true
+      cordl_range:
+        description: "bs-cordl range"
+        default: "^4503.0.0"
+        required: true
+      cjd_url:
+        description: "customjsondata repo"
+        default: "https://github.com/bsq-ports/CustomJSONData"
+        required: true
+      cjd_branch:
+        description: "customjsondata branch"
+        default: "main"
+        required: true
+      tracks_url:
+        description: "tracks repo"
+        default: "https://github.com/bsq-ports/Tracks"
+        required: true
+      tracks_branch:
+        description: "tracks branch"
+        default: "master"
+        required: true
+      chroma_url:
+        description: "chroma repo"
+        default: "https://github.com/bsq-ports/Chroma"
+        required: true
+      chroma_branch:
+        description: "chroma branch"
+        default: "main"
+        required: true
+      noodle_url:
+        description: "noodle repo"
+        default: "https://github.com/bsq-ports/NoodleExtensions"
+        required: true
+      noodle_branch:
+        description: "noodle branch"
+        default: "master"
+        required: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  port:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    env:
+      PACKAGE_VERSION: ${{ inputs.package_version }}
+      CORDL_RANGE: ${{ inputs.cordl_range }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install tools
+        run: |
+          python -m pip install --upgrade pip
+          # qpm
+          curl -fsSL https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-x86_64-unknown-linux-gnu.tar.gz | tar -xz -C /usr/local/bin
+          qpm --version || true
+
+      - name: Create port script
+        run: |
+          cat > port_all.py << 'PYTHON_SCRIPT'
+          #!/usr/bin/env python3
+          import json
+          import os
+          import re
+          import shutil
+          import subprocess
+          import sys
+          from pathlib import Path
+          from datetime import datetime
+
+          ROOT = Path.cwd()
+          SRC = ROOT / "src"
+          ARTIFACTS = ROOT / "artifacts"
+          SRC.mkdir(exist_ok=True)
+          ARTIFACTS.mkdir(exist_ok=True)
+
+          PACKAGE_VERSION = os.environ.get("PACKAGE_VERSION", "1.45.3_30054")
+          CORDL_RANGE = os.environ.get("CORDL_RANGE", "^4503.0.0")
+          NDK_RANGE = "^29.0.0"
+
+          # Modern dependency ranges (borrowed from other 1.45.3 work)
+          DEP_RANGES = {
+              "bs-cordl": CORDL_RANGE,
+              "beatsaber-hook": "^9.0.0",
+              "custom-types": "^0.21.2",
+              "config-utils": "^3.0.0",
+              "bsml": "^0.4.54",
+              "songcore": "^1.1.23",
+              "paper2_scotland2": "^4.6.4",
+              "scotland2": "^0.1.6",
+          }
+
+          MODS = [
+              {
+                  "name": "customjsondata",
+                  "id": "custom-json-data",
+                  "url": os.environ.get("CJD_URL", "https://github.com/bsq-ports/CustomJSONData"),
+                  "branch": os.environ.get("CJD_BRANCH", "main"),
+              },
+              {
+                  "name": "tracks",
+                  "id": "tracks",
+                  "url": os.environ.get("TRACKS_URL", "https://github.com/bsq-ports/Tracks"),
+                  "branch": os.environ.get("TRACKS_BRANCH", "master"),
+              },
+              {
+                  "name": "chroma",
+                  "id": "chroma",
+                  "url": os.environ.get("CHROMA_URL", "https://github.com/bsq-ports/Chroma"),
+                  "branch": os.environ.get("CHROMA_BRANCH", "main"),
+              },
+              {
+                  "name": "noodle",
+                  "id": "NoodleExtensions",
+                  "url": os.environ.get("NOODLE_URL", "https://github.com/bsq-ports/NoodleExtensions"),
+                  "branch": os.environ.get("NOODLE_BRANCH", "master"),
+              },
+          ]
+
+          built_locals = {}  # id -> local path
+          results = []
+
+          def run(cmd, cwd=None, check=False):
+              print(f"  $ {' '.join(cmd) if isinstance(cmd, list) else cmd}")
+              p = subprocess.run(
+                  cmd,
+                  cwd=cwd,
+                  shell=isinstance(cmd, str),
+                  text=True,
+                  capture_output=True,
+              )
+              if p.stdout:
+                  print(p.stdout[-4000:] if len(p.stdout) > 4000 else p.stdout)
+              if p.stderr:
+                  print(p.stderr[-4000:] if len(p.stderr) > 4000 else p.stderr)
+              if check and p.returncode != 0:
+                  raise RuntimeError(f"Command failed: {cmd}")
+              return p
+
+          def load(path: Path):
+              with open(path) as f:
+                  return json.load(f)
+
+          def save(path: Path, data):
+              with open(path, "w") as f:
+                  json.dump(data, f, indent=2)
+                  f.write("\n")
+
+          def bump_version(version: str) -> str:
+              # Simple bump: append or increment patch-like part
+              if "+" in version:
+                  base, meta = version.split("+", 1)
+              else:
+                  base, meta = version, ""
+              parts = base.split(".")
+              try:
+                  parts[-1] = str(int(parts[-1]) + 1)
+              except ValueError:
+                  parts.append("1")
+              new = ".".join(parts)
+              if meta:
+                  new += "+" + meta
+              return new
+
+          def patch_repo(repo: Path, mod_id: str, notes: list):
+              qpm = repo / "qpm.json"
+              if not qpm.exists():
+                  notes.append("no qpm.json found")
+                  return
+
+              data = load(qpm)
+
+              # Bump version
+              info = data.setdefault("info", {})
+              old_ver = info.get("version", "0.0.0")
+              new_ver = bump_version(old_ver)
+              info["version"] = new_ver
+              notes.append(f"version: {old_ver} → {new_ver}")
+
+              # Force modern dependency ranges + localPath
+              for dep in data.get("dependencies", []):
+                  dep_id = dep.get("id")
+                  if not dep_id:
+                      continue
+
+                  # Force known modern ranges
+                  if dep_id in DEP_RANGES:
+                      want = DEP_RANGES[dep_id]
+                      if dep.get("versionRange") != want:
+                          notes.append(f"{dep_id}: {dep.get('versionRange')} → {want}")
+                          dep["versionRange"] = want
+
+                  # Inject localPath for previously built mods
+                  if dep_id in built_locals:
+                      local_path = built_locals[dep_id]
+                      add = dep.setdefault("additionalData", {})
+                      if add.get("localPath") != str(local_path):
+                          add["localPath"] = str(local_path)
+                          dep["versionRange"] = "*"
+                          notes.append(f"{dep_id}: using localPath → {local_path}")
+
+              # Force NDK
+              ws = data.setdefault("workspace", {})
+              if ws.get("ndk") != NDK_RANGE:
+                  notes.append(f"ndk: {ws.get('ndk')} → {NDK_RANGE}")
+                  ws["ndk"] = NDK_RANGE
+
+              save(qpm, data)
+
+              # Try to force C++23 in CMakeLists.txt
+              cmake = repo / "CMakeLists.txt"
+              if cmake.exists():
+                  text = cmake.read_text()
+                  original = text
+                  # Common patterns
+                  text = re.sub(r"-std=c\+\+20", "-std=c++23", text)
+                  text = re.sub(r"-std=gnu\+\+20", "-std=gnu++23", text)
+                  text = re.sub(r"CMAKE_CXX_STANDARD 20", "CMAKE_CXX_STANDARD 23", text)
+                  if text != original:
+                      cmake.write_text(text)
+                      notes.append("CMake: forced C++23")
+
+          def cluster_errors(log: str) -> list[str]:
+              """Group common error patterns for the summary."""
+              lines = log.splitlines()
+              clusters = []
+              seen = set()
+
+              for line in lines:
+                  if "error:" in line or "fatal error:" in line:
+                      # Normalize a bit
+                      key = re.sub(r":\d+:\d+", ":X:Y", line)
+                      key = re.sub(r"/home/runner/work/[^ ]+", "<path>", key)
+                      if key not in seen:
+                          seen.add(key)
+                          clusters.append(line.strip())
+              return clusters[:30]  # limit
+
+          def build_one(mod: dict) -> dict:
+              name = mod["name"]
+              mod_id = mod["id"]
+              print(f"\n=== {name} ===")
+
+              result = {
+                  "name": name,
+                  "id": mod_id,
+                  "success": False,
+                  "stage": "clone",
+                  "notes": [],
+                  "errors": [],
+                  "log_tail": "",
+              }
+
+              repo = SRC / name
+              if repo.exists():
+                  shutil.rmtree(repo)
+
+              # Clone
+              p = run(["git", "clone", "--depth", "1", "--branch", mod["branch"], mod["url"], str(repo)])
+              if p.returncode != 0:
+                  result["stage"] = "clone"
+                  result["errors"] = ["git clone failed"]
+                  result["log_tail"] = (p.stderr or p.stdout or "")[-2000:]
+                  return result
+
+              notes = []
+              patch_repo(repo, mod_id, notes)
+              result["notes"] = notes
+
+              # qpm restore
+              print("→ qpm restore")
+              p = run(["qpm", "restore"], cwd=repo)
+              if p.returncode != 0:
+                  result["stage"] = "restore"
+                  result["errors"] = ["dependency resolution failed"]
+                  result["log_tail"] = (p.stderr or p.stdout or "")[-3000:]
+                  print("--- restore output ---")
+                  print(result["log_tail"])
+                  print("--- end ---")
+                  return result
+
+              # Build
+              print("→ qpm s build (or cmake)")
+              # Try the common script first, fall back to direct
+              build_cmd = ["qpm", "s", "build"]
+              p = run(build_cmd, cwd=repo)
+              if p.returncode != 0:
+                  # Fallback
+                  p = run(["qpm", "build"], cwd=repo)
+
+              build_log = (p.stdout or "") + "\n" + (p.stderr or "")
+              if p.returncode != 0:
+                  result["stage"] = "build"
+                  result["errors"] = cluster_errors(build_log)
+                  result["log_tail"] = build_log[-4000:]
+                  print("--- build errors (clustered) ---")
+                  for e in result["errors"]:
+                      print(" ", e)
+                  print("--- end ---")
+                  return result
+
+              # Package
+              print("→ qpm qmod zip")
+              p = run(["qpm", "qmod", "zip"], cwd=repo)
+              if p.returncode != 0:
+                  result["stage"] = "package"
+                  result["errors"] = ["qmod packaging failed"]
+                  result["log_tail"] = (p.stderr or p.stdout or "")[-2000:]
+                  return result
+
+              # Success – record local path for downstream mods
+              built_locals[mod_id] = repo.resolve()
+              result["success"] = True
+              result["stage"] = "done"
+              print(f"✓ {name} built successfully")
+
+              # Try to copy qmod to artifacts
+              for qmod in repo.rglob("*.qmod"):
+                  dest = ARTIFACTS / qmod.name
+                  shutil.copy2(qmod, dest)
+                  print(f"  artifact: {dest}")
+
+              return result
+
+          def main():
+              print(f"Target game version : {PACKAGE_VERSION}")
+              print(f"bs-cordl range     : {CORDL_RANGE}")
+              print(f"NDK range          : {NDK_RANGE}")
+              print()
+
+              for mod in MODS:
+                  # Pass env for the urls/branches
+                  os.environ["CJD_URL"] = os.environ.get("CJD_URL", mod["url"] if mod["name"]=="customjsondata" else "")
+                  res = build_one(mod)
+                  results.append(res)
+
+                  # Stop early on critical failure of the foundation mod
+                  if mod["name"] == "customjsondata" and not res["success"]:
+                      print("\nCustomJSONData failed – stopping early (later mods depend on it)")
+                      break
+
+              # Summary
+              print("\n" + "="*60)
+              print("SUMMARY")
+              print("="*60)
+              for r in results:
+                  status = "OK" if r["success"] else f"FAILED at {r['stage']}"
+                  print(f"{r['name']:18} {status}")
+                  if r["notes"]:
+                      for n in r["notes"]:
+                          print(f"    • {n}")
+                  if r["errors"]:
+                      print("    Errors:")
+                      for e in r["errors"][:8]:
+                          print(f"      - {e}")
+              print("="*60)
+
+              # Write summary file
+              summary_path = ARTIFACTS / "port-summary.txt"
+              with open(summary_path, "w") as f:
+                  f.write(f"Port run at {datetime.utcnow().isoformat()}Z\n")
+                  f.write(f"Game version: {PACKAGE_VERSION}\n\n")
+                  for r in results:
+                      f.write(f"### {r['name']} ({r['id']})\n")
+                      f.write(f"Success: {r['success']}\n")
+                      f.write(f"Stage: {r['stage']}\n")
+                      if r["notes"]:
+                          f.write("Notes:\n")
+                          for n in r["notes"]:
+                              f.write(f"  - {n}\n")
+                      if r["errors"]:
+                          f.write("Errors:\n")
+                          for e in r["errors"]:
+                              f.write(f"  - {e}\n")
+                      if r["log_tail"]:
+                          f.write("\nLog tail:\n")
+                          f.write(r["log_tail"])
+                          f.write("\n")
+                      f.write("\n")
+
+              # Exit non-zero if anything failed
+              if any(not r["success"] for r in results):
+                  sys.exit(1)
+
+          if __name__ == "__main__":
+              main()
+          PYTHON_SCRIPT
+
+      - name: Run port
+        env:
+          CJD_URL: ${{ inputs.cjd_url }}
+          CJD_BRANCH: ${{ inputs.cjd_branch }}
+          TRACKS_URL: ${{ inputs.tracks_url }}
+          TRACKS_BRANCH: ${{ inputs.tracks_branch }}
+          CHROMA_URL: ${{ inputs.chroma_url }}
+          CHROMA_BRANCH: ${{ inputs.chroma_branch }}
+          NOODLE_URL: ${{ inputs.noodle_url }}
+          NOODLE_BRANCH: ${{ inputs.noodle_branch }}
+        run: python3 port_all.py
+
+      - name: Upload artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: ported-mods
+          path: artifacts/
+          if-no-files-found: ignore
