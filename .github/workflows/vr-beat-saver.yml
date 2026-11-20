@@ -184,7 +184,7 @@ jobs:
               # Apply project-specific, reviewed source patches when present.
               patch = ROOT / ".github" / "operation-beat-saver" / "patches" / f"{name}.patch"
               if patch.exists() and patch.stat().st_size:
-                  rc, patch_log = run(["git", "apply", "--verbose", str(patch)], cwd=repo)
+                  rc, patch_log = run(["git", "apply", "--verbose", f"--directory={name}", str(patch)], cwd=repo)
                   record["changes"].append("Applied repository compatibility patch")
                   if rc:
                       record["stage"] = "source-patch"
