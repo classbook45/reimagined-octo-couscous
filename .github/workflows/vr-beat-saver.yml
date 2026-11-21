@@ -387,6 +387,73 @@ jobs:
           PY
           python3 operation.py
 
+      - name: Build Vivify separately for Beat Saber 1.45.3
+        env:
+          VIVIFY_REVISION: "76cdcb442d16c3a705809cc03911cde5fe007b17"
+          VIVIFY_GAME_TARGET: "1.45.3"
+        run: |
+          set -euo pipefail
+          git clone https://github.com/trail-b1az3r/vivify-quest.git vivify
+          git -C vivify checkout --detach "$VIVIFY_REVISION"
+          cd vivify
+
+          # Use the dedicated 1.45.3 dependency target. CustomJSONData and
+          # Tracks are supplied by the already-built local ports from this run.
+          python3 scripts/use-game-target.py 1.45.3 \
+            --local custom-json-data=0.24.6 \
+            --local tracks=2.5.5
+          rm -rf extern extern.cmake qpm.shared.json
+          cp mod.json mod.target.json
+
+          qpm ndk resolve -d
+          qpm restore
+
+          # Build the full feature set first.
+          cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -B build .
+          cmake --build build --parallel
+          FULL_SO="$(find build -name 'libVivify.so' -print -quit)"
+          test -n "$FULL_SO"
+          python3 scripts/check-so-dependencies.py "$FULL_SO"
+          mkdir -p ../artifacts
+          cp mod.json ../artifacts/vivify-mod-full.json
+          zip -j ../artifacts/Vivify-0.15.48-bs1.45.3.qmod mod.json "$FULL_SO"
+
+          # Build the upstream Lite feature set separately from a clean CMake
+          # directory so VIVIFY_LITE cannot leak from one build into the other.
+          rm -rf build
+          VIVIFY_GAME_TARGET=1.45.3 VIVIFY_LITE=1 \
+            cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -B build .
+          VIVIFY_GAME_TARGET=1.45.3 VIVIFY_LITE=1 \
+            cmake --build build --parallel
+          LITE_SO="$(find build -name 'libVivify.so' -print -quit)"
+          test -n "$LITE_SO"
+          python3 scripts/check-so-dependencies.py "$LITE_SO"
+          grep -aq ' (lite)' "$LITE_SO"
+          python3 - <<'PY'
+          import json
+          p = "mod.json"
+          data = json.load(open(p))
+          data["name"] = "Vivify Lite"
+          json.dump(data, open(p, "w"), indent=2)
+          PY
+          zip -j ../artifacts/Vivify-Lite-0.15.48-bs1.45.3.qmod mod.json "$LITE_SO"
+          cp mod.target.json mod.json
+
+          # Both packages must contain an ARM64 native library.
+          python3 - <<'PY'
+          import pathlib, struct, zipfile
+          for path in sorted(pathlib.Path("../artifacts").glob("Vivify*.qmod")):
+              with zipfile.ZipFile(path) as z:
+                  libs = [z.read(n) for n in z.namelist() if n.endswith(".so")]
+              if not libs or not any(
+                  len(b) >= 20 and b[:4] == b"\\x7fELF" and b[4] == 2 and
+                  b[5] == 1 and struct.unpack("<H", b[18:20])[0] == 183
+                  for b in libs
+              ):
+                  raise SystemExit(f"ARM64 QMOD validation failed: {path}")
+              print(f"Validated Vivify QMOD: {path}")
+          PY
+
       - name: Upload builds and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
