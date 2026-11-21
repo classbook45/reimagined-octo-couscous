@@ -8,3 +8,17 @@ diff --git a/src/Hooks/BeatmapObjectCallBackController.cpp b/src/Hooks/BeatmapOb
 
      CJDLogger::Logger.fmtLog<Paper::LogLevel::INF>("Using noodle sorted node");
      controller = selfController;
+diff --git a/src/Animation/NoodleMovementDataProvider.cpp b/src/Animation/NoodleMovementDataProvider.cpp
+--- a/src/Animation/NoodleMovementDataProvider.cpp
++++ b/src/Animation/NoodleMovementDataProvider.cpp
+@@ -39,6 +39,10 @@
+   } else if (beatmapObjectData->klass == customSliderDataClass) {
+     customDataWrapper = ((CustomJSONData::CustomSliderData*)beatmapObjectData)->customData;
+   }
++  // Some beatmap objects can reach the Noodle movement provider without a
++  // CustomJSONData wrapper. getAD() dereferences the wrapper, so skip Noodle
++  // overrides for those objects instead of dereferencing a null pointer.
++  if (!customDataWrapper) return this;
+   BeatmapObjectAssociatedData& ad = getAD(customDataWrapper);
+ 
+   if (!ad.parsed) return this;
