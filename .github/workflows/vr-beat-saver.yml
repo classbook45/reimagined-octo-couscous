@@ -140,11 +140,20 @@ jobs:
           print("Prepared Tracks dependency:", info["version"])
           PY
           mkdir -p ports/Tracks/shared
-          qpm restore --directory ports/Tracks
+
+      - name: Set up Rust for Tracks native dependency
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-ndk
+        run: cargo install cargo-ndk --locked
+
+      - name: Restore Tracks dependencies
+        working-directory: ports/Tracks
+        run: qpm restore
 
       - name: Build Tracks dependency first
-        run: |
-          qpm s build --directory ports/Tracks
+        working-directory: ports/Tracks
+        run: qpm s build
 
       - name: Point NoodleExtensions at the locally built Tracks dependency
         run: |
