@@ -8,16 +8,7 @@ on:
         type: string
         required: true
         default: "1.45.3_30054"
-      cordl_range:
-        description: "Target bs-cordl range"
-        type: string
-        required: true
-        default: "^4503.0.0"
-      hook_range:
-        description: "Target beatsaber-hook range"
-        type: string
-        required: true
-        default: "^9.3.0"
+
 
 permissions:
   contents: read
@@ -28,5 +19,3 @@ jobs:
     uses: ./.github/workflows/vr-beat-saver.yml
     with:
       package_version: ${{ inputs.package_version }}
-      cordl_range: ${{ inputs.cordl_range }}
-      hook_range: ${{ inputs.hook_range }}
