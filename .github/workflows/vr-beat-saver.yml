@@ -100,6 +100,8 @@ jobs:
       - name: Restore NoodleExtensions dependencies
         working-directory: ports/NoodleExtensions
         run: |
+          # qpm.json declares sharedDir=shared; QPM expects it to exist before restore.
+          mkdir -p shared
           qpm restore
 
       - name: Build NoodleExtensions only
