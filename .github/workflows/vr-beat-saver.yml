@@ -1,4 +1,4 @@
-name: NoodleExtensions — Crash Fix Build
+name: VR Beat Saver — Operation Beat Saver (Noodle Fix)
 
 on:
   workflow_call:
@@ -7,18 +7,33 @@ on:
         type: string
         required: false
         default: "1.45.3_30054"
+      cordl_range:
+        type: string
+        required: false
+        default: "^4503.0.0"
+      hook_range:
+        type: string
+        required: false
+        default: "^9.3.0"
   push:
     branches: [main]
     paths:
-      - ".github/workflows/vr-beat-saver.yml"
-      - ".github/operation-beat-saver/patches/NoodleExtensions.patch"
+      - '.github/workflows/vr-beat-saver.yml'
+      - '.github/operation-beat-saver/patches/**'
   workflow_dispatch:
     inputs:
       package_version:
         description: "Beat Saber package version"
-        type: string
         required: true
         default: "1.45.3_30054"
+      cordl_range:
+        description: "Target bs-cordl range"
+        required: true
+        default: "^4503.0.0"
+      hook_range:
+        description: "Target beatsaber-hook range"
+        required: true
+        default: "^9.3.0"
 
 permissions:
   contents: read
@@ -28,36 +43,45 @@ defaults:
     shell: bash
 
 jobs:
-  noodle-only:
-    name: Patch and build NoodleExtensions only
+  operation-beat-saver:
+    name: Inspect, patch and build Quest mods
     runs-on: ubuntu-latest
-    timeout-minutes: 90
+    timeout-minutes: 180
     env:
       PACKAGE_VERSION: ${{ inputs.package_version || '1.45.3_30054' }}
+      CORDL_RANGE: ${{ inputs.cordl_range || '^4503.0.0' }}
+      HOOK_RANGE: ${{ inputs.hook_range || '^9.3.0' }}
       ANDROID_NDK_VERSION: "29.0.14206865"
-      PORTS_REPOSITORY: "https://github.com/trail-b1az3r/ports-"
-      PORTS_REVISION: "c3bcdffbaf90d6c3bc2d70f68fcf6cb2da0341e3"
 
     steps:
-      - name: Checkout this repository
+      - name: Checkout workflow and compatibility patches
         uses: actions/checkout@v4
 
-      - name: Set up Java
-        uses: actions/setup-java@v5
+      - name: Set up Python and Java
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "17"
 
-      - name: Install Ninja
+      - name: Set up Rust nightly and cargo-ndk
         run: |
-          sudo apt-get update
-          sudo apt-get install -y ninja-build
+          rustup toolchain install nightly --profile minimal
+          rustup target add aarch64-linux-android --toolchain nightly
+          cargo install --locked cargo-ndk
+          cargo ndk --version
 
-      - name: Install Android SDK and pinned NDK
+      - name: Install Ninja
+        run: sudo apt-get update && sudo apt-get install -y ninja-build
+
+
+      - name: Install Android SDK and NDK 29
         uses: android-actions/setup-android@v3
         with:
           packages: platform-tools
-      - name: Install NDK
+      - name: Install pinned NDK
         run: |
           sdkmanager --install "platform-tools" "ndk;${ANDROID_NDK_VERSION}"
           NDK_PATH="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
@@ -78,146 +102,298 @@ jobs:
           sudo install -m 755 "$QPM_BIN" /usr/local/bin/qpm
           qpm --version
 
-      - name: Fetch pinned 1.45.3 NoodleExtensions source
+      - name: Publish milestone roadmap
         run: |
-          git init ports
-          git -C ports remote add origin "$PORTS_REPOSITORY"
-          git -C ports fetch --depth 1 origin "$PORTS_REVISION"
-          git -C ports checkout --detach FETCH_HEAD
-          test "$(git -C ports rev-parse HEAD)" = "$PORTS_REVISION"
-          test -d ports/NoodleExtensions
+          mkdir -p reports
+          cp .github/operation-beat-saver/MILESTONES.md reports/MILESTONES.md
+          cat reports/MILESTONES.md
 
-      - name: Apply and verify the NoodleExtensions crash fix
+      - name: Clone, inspect and patch the source projects
+        env:
+          PORTS_URL: https://github.com/trail-b1az3r/ports-
+          PORTS_BRANCH: main
+          PORTS_REVISION: c3bcdffbaf90d6c3bc2d70f68fcf6cb2da0341e3
         run: |
-          PATCH="$GITHUB_WORKSPACE/.github/operation-beat-saver/patches/NoodleExtensions.patch"
-          test -s "$PATCH"
-          git -C ports apply --check --directory=NoodleExtensions "$PATCH"
-          git -C ports apply --verbose --directory=NoodleExtensions "$PATCH"
-          grep -Fq 'if (beatmapOpt && (controller != selfController || selfController->_beatmapData != beatmapData)) {' ports/NoodleExtensions/src/Hooks/BeatmapObjectCallBackController.cpp
-          git -C ports diff --check
-          git -C ports diff -- NoodleExtensions/src/Hooks/BeatmapObjectCallBackController.cpp
+          mkdir -p src artifacts reports
+          cat > operation.py <<'PY'
+          import json, os, pathlib, shutil, struct, subprocess, sys, zipfile
 
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
+          ROOT = pathlib.Path.cwd()
+          SRC = ROOT / "src"
+          REPORTS = ROOT / "reports"
+          ARTIFACTS = ROOT / "artifacts"
+          CORDL = os.environ["CORDL_RANGE"]
+          HOOK = os.environ["HOOK_RANGE"]
+          NDK = "^29.0.0"
 
-      - name: Fetch and prepare Tracks dependency
-        run: |
-          git clone --depth 1 --branch master https://github.com/bsq-ports/Tracks.git ports/Tracks
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
+          projects = [
+              ("CustomJSONData", "custom-json-data"),
+              ("Tracks", "tracks"),
+              ("NoodleExtensions", "NoodleExtensions"),
+              ("Chroma", "chroma"),
+          ]
+          local_projects = {}
+          summary = []
 
-          path = Path("ports/Tracks/qpm.json")
-          data = json.loads(path.read_text())
-          info = data.setdefault("info", {})
-          old_version = info.get("version", "0.0.0")
-          parts = old_version.split("+", 1)
-          nums = parts[0].split(".")
-          try:
-              nums[-1] = str(int(nums[-1]) + 1)
-          except ValueError:
-              nums.append("1")
-          info["version"] = ".".join(nums) + (("+" + parts[1]) if len(parts) > 1 else "")
+          def run(args, cwd=None):
+              print("\n$ " + " ".join(map(str, args)), flush=True)
+              p = subprocess.run(args, cwd=cwd, text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+              print(p.stdout[-12000:], flush=True)
+              return p.returncode, p.stdout
 
-          ranges = {
-              "bs-cordl": "^4503.0.0",
-              "beatsaber-hook": "^6.4.2",
-              "custom-types": "^0.21.2",
-              "config-utils": "^3.0.0",
-              "bsml": "^0.4.54",
-              "songcore": "^1.1.23",
-              "paper2_scotland2": "^4.6.4",
-              "scotland2": "^0.1.6",
-          }
-          for dep in data.get("dependencies", []):
-              dep_id = dep.get("id")
-              if dep_id in ranges:
-                  dep["versionRange"] = ranges[dep_id]
-          data.setdefault("workspace", {})["ndk"] = "^29.0.0"
-          path.write_text(json.dumps(data, indent=2) + "\n")
-          print("Prepared Tracks dependency:", info["version"])
+          def update_manifest(path, shared=False):
+              data = json.loads(path.read_text())
+              cfg = data.get("config", data) if shared else data
+              deps = cfg.get("dependencies", [])
+              edits = []
+              for dep in deps:
+                  dep_id = dep.get("id")
+                  if dep_id == "bs-cordl":
+                      dep["versionRange"] = CORDL
+                      edits.append(f"bs-cordl => {CORDL}")
+                  elif dep_id == "beatsaber-hook":
+                      dep["versionRange"] = HOOK
+                      edits.append(f"beatsaber-hook => {HOOK}")
+                  if dep_id in local_projects:
+                      dep.setdefault("additionalData", {})["localPath"] = str(local_projects[dep_id])
+                      dep["versionRange"] = "*"
+                      edits.append(f"{dep_id} => local build {local_projects[dep_id]}")
+              workspace = cfg.setdefault("workspace", {})
+              workspace["ndk"] = NDK
+              # qpm.shared.json carries a restoredDependencies lock snapshot.
+              # Drop it after changing version ranges so QPM cannot silently reuse
+              # the old Hook 6.x / CORDL 4008 headers.
+              if shared:
+                  data["restoredDependencies"] = []
+              path.write_text(json.dumps(data, indent=2) + "\n")
+              return edits
+
+          def patch_cmake(repo):
+              path = repo / "CMakeLists.txt"
+              if not path.exists():
+                  return []
+              # Keep each project's declared language standard. C++23 is not a
+              # substitute for migrating code to the new Hook/CORDL interfaces.
+              return ["CMake standard preserved: " + next((x.strip() for x in path.read_text().splitlines() if "CMAKE_CXX_STANDARD " in x), "not explicitly declared")]
+
+          ports = ROOT / "ports"
+          rc, log = run(["git", "clone", "--depth", "1", "--branch", os.environ["PORTS_BRANCH"], os.environ["PORTS_URL"], str(ports)])
+          if rc:
+              raise SystemExit("Could not clone the Beat Saber 1.45.3 compatibility ports")
+          rc, rev = run(["git", "rev-parse", "HEAD"], cwd=ports)
+          print("Using 1.45.3 compatibility source revision: " + rev.strip(), flush=True)
+          expected_revision = os.environ["PORTS_REVISION"]
+          if rev.strip() != expected_revision:
+              raise SystemExit(f"Compatibility source revision mismatch: expected {expected_revision}, got {rev.strip()}")
+
+          for name, mod_id in projects:
+              repo = ports / name
+              if not repo.is_dir():
+                  summary.append({"project": name, "stage": "clone", "success": False, "changes": [], "errors": ["Project directory missing from compatibility ports"]})
+                  continue
+              rc, log = 0, "Using project source from the pinned 1.45.3 compatibility ports bundle"
+              record = {"project": name, "stage": "clone", "success": False, "changes": [], "errors": []}
+              if rc:
+                  record["errors"].append("Git clone failed")
+                  (REPORTS / f"{name}.log").write_text(log)
+                  summary.append(record)
+                  continue
+
+              # Apply project-specific, reviewed source patches when present.
+              patch = ROOT / ".github" / "operation-beat-saver" / "patches" / f"{name}.patch"
+              if patch.exists() and patch.stat().st_size:
+                  rc, patch_log = run(["git", "apply", "--verbose", f"--directory={name}", str(patch)], cwd=ports)
+                  record["changes"].append("Applied repository compatibility patch")
+                  if rc:
+                      record["stage"] = "source-patch"
+                      record["errors"].append("Patch did not apply cleanly; refusing to build unpatched source")
+                      (REPORTS / f"{name}.log").write_text(patch_log)
+                      summary.append(record)
+                      continue
+                  if name == "Chroma" and not (repo / "CMakeLists.txt").is_file():
+                      record["stage"] = "source-patch"
+                      record["errors"].append("Chroma patch reported success but did not create the project-root CMakeLists.txt")
+                      (REPORTS / f"{name}.log").write_text(patch_log)
+                      summary.append(record)
+                      continue
+              else:
+                  if name == "NoodleExtensions":
+                      record["stage"] = "source-patch"
+                      record["errors"].append("Required NoodleExtensions crash-fix patch is missing; refusing to build unpatched source")
+                      summary.append(record)
+                      continue
+                  record["changes"].append("Using the dedicated Beat Saber 1.45.3 compatibility source; no extra overlay patch needed")
+
+              qpm = repo / "qpm.json"
+              if not qpm.exists():
+                  record["stage"] = "inspect"
+                  record["errors"].append("Missing qpm.json")
+                  summary.append(record)
+                  continue
+
+              shared = repo / "qpm.shared.json"
+              if not shared.exists():
+                  record["stage"] = "inspect"
+                  record["errors"].append("Missing qpm.shared.json lockfile for the 1.45.3 port")
+                  summary.append(record)
+                  continue
+              record["changes"].append("Using the port's 1.45.3 source and dependency lockfile; no speculative version rewrites")
+
+              record["stage"] = "dependency-restore"
+              rc, ndk_log = run(["qpm", "ndk", "resolve", "-d"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM could not resolve the pinned Android NDK")
+                  (REPORTS / f"{name}.log").write_text(ndk_log)
+                  summary.append(record)
+                  continue
+              # Some upstream build scripts hard-code scripts/ndkpath.txt,
+              # while QPM resolves the NDK path at the project root.
+              if name == "Chroma":
+                  root_ndk = repo / "ndkpath.txt"
+                  if root_ndk.exists():
+                      scripts_dir = repo / "scripts"
+                      scripts_dir.mkdir(parents=True, exist_ok=True)
+                      shutil.copy2(root_ndk, scripts_dir / "ndkpath.txt")
+              # QPM's package cache expects the declared sharedDir to exist,
+              # even for ports whose source tree only contains include/ headers.
+              (repo / "shared").mkdir(parents=True, exist_ok=True)
+              rc, restore_log = run(["qpm", "restore"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM dependency resolution failed")
+                  (REPORTS / f"{name}.log").write_text(restore_log)
+                  summary.append(record)
+                  continue
+
+              # Verify that the lockfile now contains the requested generation,
+              # rather than silently accepting the old 6.x / 4008 headers.
+              shared_after_restore = json.loads(shared.read_text()) if shared.exists() else {}
+              resolved = {
+                  item.get("dependency", {}).get("id"): item.get("version", "")
+                  for item in shared_after_restore.get("restoredDependencies", [])
+              }
+              def version_tuple(value):
+                  parts = []
+                  for part in value.split("."):
+                      digits = "".join(ch for ch in part if ch.isdigit())
+                      if not digits:
+                          break
+                      parts.append(int(digits))
+                  return tuple((parts + [0, 0, 0])[:3])
+              required = {"beatsaber-hook": (9, 3, 0), "bs-cordl": (4503, 0, 0)}
+              bad = []
+              for dep_id, minimum in required.items():
+                  actual = resolved.get(dep_id, "")
+                  if not actual or version_tuple(actual) < minimum:
+                      bad.append(f"{dep_id}: expected >= {'.'.join(map(str, minimum))}, resolved {actual or 'missing'}")
+              record["changes"].append("Resolved dependency versions: " + ", ".join(f"{k}={v}" for k, v in resolved.items() if k in required))
+              if bad:
+                  record["stage"] = "dependency-restore"
+                  record["errors"].extend(bad)
+                  (REPORTS / f"{name}.log").write_text(restore_log + "\n" + "\n".join(bad))
+                  summary.append(record)
+                  continue
+
+              record["stage"] = "compile"
+              if name == "Tracks":
+                  rc, build_log = run(["bash", "-lc", 'export RUSTUP_TOOLCHAIN=nightly && export ANDROID_NDK_HOME="$(cat ndkpath.txt)" && qpm s build'], cwd=repo)
+              else:
+                  rc, build_log = run(["qpm", "s", "build"], cwd=repo)
+              if rc:
+                  record["errors"] += [line.strip() for line in build_log.splitlines()
+                                       if "error:" in line.lower() or "fatal error:" in line.lower()][:40]
+                  if not record["errors"]:
+                      record["errors"].append("Compiler/build command failed; see full log")
+                  (REPORTS / f"{name}.log").write_text(build_log)
+                  summary.append(record)
+                  continue
+
+              rc, install_log = run(["qpm", "install"], cwd=repo)
+              if rc:
+                  record["errors"].append("QPM could not install the freshly built package into the runner's local package cache")
+                  (REPORTS / f"{name}.log").write_text(install_log)
+                  summary.append(record)
+                  continue
+              record["stage"] = "package"
+              rc, package_log = run(["qpm", "qmod", "zip"], cwd=repo)
+              if rc:
+                  record["errors"].append("QMOD packaging failed")
+                  (REPORTS / f"{name}.log").write_text(package_log)
+                  summary.append(record)
+                  continue
+
+              qmod_name = json.loads(qpm.read_text()).get("workspace", {}).get("qmodOutput")
+              qmods = [p for p in repo.rglob(qmod_name)] if qmod_name else []
+              if not qmods:
+                  record["errors"].append("Build completed but no .qmod was produced")
+                  summary.append(record)
+                  continue
+              for qmod in qmods:
+                  target = ARTIFACTS / qmod.name
+                  target.write_bytes(qmod.read_bytes())
+              local_projects[mod_id] = repo.resolve()
+              record["stage"] = "complete"
+              record["success"] = True
+              summary.append(record)
+
+          (REPORTS / "summary.json").write_text(json.dumps(summary, indent=2) + "\n")
+          by_name = {item["project"]: item for item in summary}
+          all_projects = len(summary) == len(projects)
+          source_inventory = all_projects and all(item["stage"] != "clone" for item in summary)
+          dependency_alignment = all_projects and all(item["stage"] in ("compile", "package", "complete") for item in summary)
+          source_migration = all_projects and all(item["success"] for item in summary)
+          qmods = list(ARTIFACTS.glob("*.qmod"))
+          qmod_count = len(qmods)
+          def is_arm64_qmod(path):
+              try:
+                  with zipfile.ZipFile(path) as archive:
+                      for name in archive.namelist():
+                          if name.endswith(".so"):
+                              data = archive.read(name)
+                              if len(data) >= 20 and data[:4] == b"\x7fELF" and data[4] == 2 and data[5] == 1 and struct.unpack("<H", data[18:20])[0] == 183:
+                                  return True
+              except (zipfile.BadZipFile, OSError):
+                  return False
+              return False
+          validated_qmods = sum(1 for qmod in qmods if is_arm64_qmod(qmod))
+          all_built = all_projects and all(item["success"] for item in summary)
+          milestone_checks = [
+              ("1. Workflow and toolchain baseline", pathlib.Path(os.environ["ANDROID_NDK_HOME"], "source.properties").exists() and shutil.which("qpm") is not None),
+              ("2. Source inventory", source_inventory),
+              ("3. Dependency graph alignment", dependency_alignment),
+              ("4. Source/API migration", source_migration),
+              ("5. CustomJSONData build", by_name.get("CustomJSONData", {}).get("success", False)),
+              ("6. Tracks build", by_name.get("Tracks", {}).get("success", False)),
+              ("7. Chroma build", by_name.get("Chroma", {}).get("success", False)),
+              ("8. NoodleExtensions build", by_name.get("NoodleExtensions", {}).get("success", False)),
+              ("9. QMOD package validation", all_built and qmod_count >= 4 and validated_qmods >= 4),
+              ("10. Release bundle validation", all_built and qmod_count >= 4 and validated_qmods >= 4),
+          ]
+          reached = sum(1 for _, ok in milestone_checks if ok)
+          lines = [f"Target Beat Saber package: {os.environ['PACKAGE_VERSION']}",
+                   f"CORDL: {CORDL}", f"Hook: {HOOK}", f"NDK: {os.environ['ANDROID_NDK_VERSION']}", "",
+                   f"MILESTONE SCORE: {reached}/{len(milestone_checks)}",
+                   f"QMOD files: {qmod_count}; valid AArch64 native payloads: {validated_qmods}"]
+          for label, ok in milestone_checks:
+              lines.append(f"[{'PASS' if ok else 'PENDING/FAIL'}] {label}")
+          lines.append("")
+          for item in summary:
+              lines.append(f"{item['project']}: {'PASS' if item['success'] else 'FAIL'} at {item['stage']}")
+              lines.extend("  CHANGE: " + x for x in item["changes"])
+              lines.extend("  ERROR: " + x for x in item["errors"])
+          (ARTIFACTS / "operation-beat-saver-report.txt").write_text("\n".join(lines) + "\n")
+          print("\n".join(lines))
+          if not summary or not all_built or reached != len(milestone_checks):
+              sys.exit(1)
           PY
-          mkdir -p ports/Tracks/shared
+          python3 operation.py
 
-      - name: Set up Rust for Tracks native dependency
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install cargo-ndk
-        run: cargo install cargo-ndk --locked
-
-      - name: Restore Tracks dependencies
-        working-directory: ports/Tracks
-        run: qpm restore
-
-      - name: Build Tracks dependency first
-        working-directory: ports/Tracks
-        run: qpm s build
-
-      - name: Point NoodleExtensions at the locally built Tracks dependency
-        run: |
-          python3 - <<'PY'
-          import json
-          from pathlib import Path
-
-          path = Path("ports/NoodleExtensions/qpm.json")
-          data = json.loads(path.read_text())
-          info = data.setdefault("info", {})
-          old_version = info.get("version", "0.0.0")
-          parts = old_version.split("+", 1)
-          nums = parts[0].split(".")
-          try:
-              nums[-1] = str(int(nums[-1]) + 1)
-          except ValueError:
-              nums.append("1")
-          info["version"] = ".".join(nums) + (("+" + parts[1]) if len(parts) > 1 else "")
-          data.setdefault("workspace", {})["ndk"] = "^29.0.0"
-
-          for dep in data.get("dependencies", []):
-              if dep.get("id") == "tracks":
-                  additional = dep.setdefault("additionalData", {})
-                  additional["localPath"] = str(Path("ports/Tracks").resolve())
-                  dep["versionRange"] = "*"
-                  break
-          else:
-              raise SystemExit("NoodleExtensions qpm.json does not declare Tracks")
-
-          path.write_text(json.dumps(data, indent=2) + "\n")
-          print("NoodleExtensions will use local Tracks:", Path("ports/Tracks").resolve())
-          PY
-
-      - name: Restore NoodleExtensions dependencies
-        working-directory: ports/NoodleExtensions
-        run: |
-          mkdir -p shared
-          qpm restore
-
-      - name: Build NoodleExtensions only
-        working-directory: ports/NoodleExtensions
-        run: |
-          qpm s build
-
-      - name: Package NoodleExtensions QMOD
-        working-directory: ports/NoodleExtensions
-        run: |
-          qpm qmod zip
-          test -f NoodleExtensions.qmod
-          mkdir -p "$GITHUB_WORKSPACE/artifacts"
-          cp NoodleExtensions.qmod "$GITHUB_WORKSPACE/artifacts/NoodleExtensions-crash-fix.qmod"
-          {
-            echo "NoodleExtensions crash-fix build"
-            echo "Beat Saber package: $PACKAGE_VERSION"
-            echo "Source revision: $PORTS_REVISION"
-            echo "Patch applied and verified: yes"
-            echo "Built project: NoodleExtensions only"
-          } > "$GITHUB_WORKSPACE/artifacts/build-report.txt"
-
-      - name: Upload NoodleExtensions artifact
+      - name: Upload builds and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: noodleextensions-crash-fix
-          path: artifacts/
+          name: operation-beat-saver-results
+          path: |
+            artifacts/
+            reports/
           if-no-files-found: warn
           retention-days: 14
