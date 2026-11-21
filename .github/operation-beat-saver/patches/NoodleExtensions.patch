@@ -1,7 +1,7 @@
 diff --git a/src/Hooks/BeatmapObjectCallBackController.cpp b/src/Hooks/BeatmapObjectCallBackController.cpp
 --- a/src/Hooks/BeatmapObjectCallBackController.cpp
 +++ b/src/Hooks/BeatmapObjectCallBackController.cpp
-@@ -112,8 +112,15 @@ MAKE_HOOK_MATCH(BeatmapCallbacksUpdater_LateUpdate, &BeatmapCallbacksUpdater::La
+@@ -112,8 +112,16 @@ MAKE_HOOK_MATCH(BeatmapCallbacksUpdater_LateUpdate, &BeatmapCallbacksUpdater::La
      return BeatmapCallbacksUpdater_LateUpdate(self);
    }
 
