@@ -1,21 +1,6 @@
 diff --git a/src/Hooks/BeatmapObjectCallBackController.cpp b/src/Hooks/BeatmapObjectCallBackController.cpp
 --- a/src/Hooks/BeatmapObjectCallBackController.cpp
 +++ b/src/Hooks/BeatmapObjectCallBackController.cpp
-@@ -108,9 +108,16 @@ MAKE_HOOK_MATCH(BeatmapCallbacksUpdater_LateUpdate, &BeatmapCallbacksUpdater::LateUpdate, void,
-     return BeatmapCallbacksUpdater_LateUpdate(self);
-   }
-
-   auto beatmapOpt = i2c::try_cast<CustomJSONData::CustomBeatmapData*>(selfController->_beatmapData);
+@@ -1,1 +1,1 @@
 -  if (beatmapOpt && controller != selfController || selfController->_beatmapData != beatmapData) {
-+  // try_cast returns a nullable pointer, not an optional. Never pass a null
-+  // beatmap into SortAndOrderList when the right side of the condition is true.
-+  if (!beatmapOpt) {
-+    controller = nullptr;
-+    beatmapData = nullptr;
-+    return BeatmapCallbacksUpdater_LateUpdate(self);
-+  }
-+
-+  if (controller != selfController || selfController->_beatmapData != beatmapData) {
-
-     CJDLogger::Logger.fmtLog<Paper::LogLevel::INF>("Using noodle sorted node");
-     controller = selfController;
++  if (beatmapOpt && (controller != selfController || selfController->_beatmapData != beatmapData)) {
