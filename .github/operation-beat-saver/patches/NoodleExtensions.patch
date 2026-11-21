@@ -1,14 +1,14 @@
 diff --git a/src/Hooks/BeatmapObjectCallBackController.cpp b/src/Hooks/BeatmapObjectCallBackController.cpp
 --- a/src/Hooks/BeatmapObjectCallBackController.cpp
 +++ b/src/Hooks/BeatmapObjectCallBackController.cpp
-@@ -112,8 +112,16 @@ MAKE_HOOK_MATCH(BeatmapCallbacksUpdater_LateUpdate, &BeatmapCallbacksUpdater::La
+@@ -108,9 +108,16 @@ MAKE_HOOK_MATCH(BeatmapCallbacksUpdater_LateUpdate, &BeatmapCallbacksUpdater::LateUpdate, void,
      return BeatmapCallbacksUpdater_LateUpdate(self);
    }
 
-   auto beatmapOpt = il2cpp_utils::try_cast<CustomJSONData::CustomBeatmapData>(selfController->_beatmapData);
+   auto beatmapOpt = i2c::try_cast<CustomJSONData::CustomBeatmapData*>(selfController->_beatmapData);
 -  if (beatmapOpt && controller != selfController || selfController->_beatmapData != beatmapData) {
-+  // A non-Noodle beatmap produces an empty optional. Reset cached state and
-+  // return before any attempt to access beatmapOpt.value().
++  // try_cast returns a nullable pointer, not an optional. Never pass a null
++  // beatmap into SortAndOrderList when the right side of the condition is true.
 +  if (!beatmapOpt) {
 +    controller = nullptr;
 +    beatmapData = nullptr;
