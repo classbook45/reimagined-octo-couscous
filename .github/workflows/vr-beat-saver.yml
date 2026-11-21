@@ -446,7 +446,7 @@ jobs:
               with zipfile.ZipFile(path) as z:
                   libs = [z.read(n) for n in z.namelist() if n.endswith(".so")]
               if not libs or not any(
-                  len(b) >= 20 and b[:4] == b"\\x7fELF" and b[4] == 2 and
+                  len(b) >= 20 and b[:4] == b"\x7fELF" and b[4] == 2 and
                   b[5] == 1 and struct.unpack("<H", b[18:20])[0] == 183
                   for b in libs
               ):
