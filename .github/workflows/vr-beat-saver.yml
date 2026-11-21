@@ -1,6 +1,20 @@
 name: VR Beat Saver — Operation Beat Saver
 
 on:
+  workflow_call:
+    inputs:
+      package_version:
+        type: string
+        required: false
+        default: "1.45.3_30054"
+      cordl_range:
+        type: string
+        required: false
+        default: "^4503.0.0"
+      hook_range:
+        type: string
+        required: false
+        default: "^9.3.0"
   push:
     branches: [main]
     paths:
