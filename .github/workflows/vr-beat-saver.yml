@@ -608,7 +608,7 @@ jobs:
           }
 
           def version_tuple(value):
-              match = re.match(r"^(\\d+)\\.(\\d+)\\.(\\d+)", value or "")
+              match = re.match(r"^(\d+)\.(\d+)\.(\d+)", value or "")
               return tuple(map(int, match.groups())) if match else None
 
           failures = []
@@ -631,7 +631,7 @@ jobs:
               cp extern/libs/libzip.so.so extern/libs/libzip.so
             else
               echo "QPM did not restore extern/libs/libzip.so"
-              find extern/libs -maxdepth 1 -type f -printf '%f\\n' | sort || true
+              find extern/libs -maxdepth 1 -type f -printf '%f\n' | sort || true
               exit 1
             fi
           fi
