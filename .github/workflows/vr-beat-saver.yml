@@ -405,6 +405,7 @@ jobs:
           rm -rf extern extern.cmake qpm.shared.json
           cp mod.json mod.target.json
 
+          qpm config cache path "$RUNNER_TEMP/qpm-cache"
           qpm ndk resolve -d
           qpm restore
 
