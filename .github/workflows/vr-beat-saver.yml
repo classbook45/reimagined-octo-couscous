@@ -553,6 +553,24 @@ jobs:
           qpm ndk resolve -d
           qpm restore
 
+      - name: Add missing standard vector include to CustomModels zip header
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("include/zip.hpp")
+          data = path.read_text()
+          if "#include <vector>" in data:
+              print("zip.hpp already includes vector")
+          else:
+              anchor = "#include <string>"
+              if data.count(anchor) != 1:
+                  raise SystemExit("Expected exactly one <string> include in include/zip.hpp")
+              path.write_text(data.replace(anchor, anchor + "\n#include <vector>", 1))
+              print("Added the required <vector> include")
+          PY
+
       - name: Apply verified 1.45.3 header compatibility fixes
         working-directory: CustomModels
         run: |
