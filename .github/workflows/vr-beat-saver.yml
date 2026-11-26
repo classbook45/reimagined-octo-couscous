@@ -553,6 +553,45 @@ jobs:
           qpm ndk resolve -d
           qpm restore
 
+      - name: Apply verified 1.45.3 header compatibility fixes
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+
+          def replace_once(path, old, new):
+              file = Path(path)
+              data = file.read_text()
+              count = data.count(old)
+              if count != 1:
+                  raise SystemExit(f"Expected exactly one match in {path}, found {count}: {old!r}")
+              file.write_text(data.replace(old, new))
+
+          replace_once(
+              "extern/includes/beatsaber-hook/shared/utils/il2cpp-utils-methods.hpp",
+              "::std::vector<const Il2CppClass* const> genTypes;",
+              "::std::vector<const Il2CppClass*> genTypes;"
+          )
+          replace_once(
+              "extern/includes/beatsaber-hook/shared/utils/il2cpp-utils-methods.hpp",
+              "::std::vector<const Il2CppType* const> argTypes;",
+              "::std::vector<const Il2CppType*> argTypes;"
+          )
+
+          list_header = "extern/includes/beatsaber-hook/shared/utils/typedefs-list.hpp"
+          replace_once(list_header, "this->_items[this->size()] = T();", "this->ptr->_items[this->size()] = T();")
+          replace_once(list_header, "this->_size -= count;", "this->ptr->_size -= count;")
+          replace_once(list_header, "this->_version++;", "this->ptr->_version++;")
+
+          replace_once(
+              "extern/includes/lapiz/shared/objects/RegistrationHelper.hpp",
+              "Registration(const Self&& other)",
+              "Registration(Self&& other)"
+          )
+          print("Applied 6 checked compatibility edits to resolved dependency headers.")
+          PY
+
       - name: Build CustomModels native library
         working-directory: CustomModels
         run: |
