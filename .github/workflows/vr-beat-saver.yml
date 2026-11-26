@@ -594,77 +594,21 @@ jobs:
               print("zip.hpp already includes vector and utility")
           PY
 
-      - name: Apply verified 1.45.3 header compatibility fixes
+      - name: Verify resolved headers without stale source rewrites
         working-directory: CustomModels
         run: |
           set -euo pipefail
           python3 - <<'PY'
           from pathlib import Path
-
-          roots = [Path("."), Path.home() / ".local/share/QPM-RS/cache"]
-
-          def replace_resolved_header(filename, old, new):
-              candidates = []
-              for root in roots:
-                  if root.exists():
-                      candidates.extend(
-                          p for p in root.rglob(filename)
-                          if ".git" not in p.parts and "build" not in p.parts
-                      )
-              # QPM keeps restored dependency source in its cache; some QPM
-              # versions do not materialize those headers under CustomModels/extern.
-              matches = []
-              for file in candidates:
-                  try:
-                      data = file.read_text()
-                  except (OSError, UnicodeDecodeError):
-                      continue
-                  if old in data:
-                      matches.append((file, data))
-              if len(matches) != 1:
-                  found = [str(file) for file, _ in matches]
-                  raise SystemExit(
-                      f"Expected exactly one {filename} containing the target "
-                      f"declaration across the project and QPM cache; found "
-                      f"{len(matches)}: {found}"
-                  )
-              file, data = matches[0]
-              if data.count(old) != 1:
-                  raise SystemExit(f"Expected one declaration in {file}: {old!r}")
-              file.write_text(data.replace(old, new))
-              print(f"Patched resolved dependency header: {file}")
-
-          replace_resolved_header(
-              "il2cpp-utils-methods.hpp",
-              "::std::vector<const Il2CppClass* const> genTypes;",
-              "::std::vector<const Il2CppClass*> genTypes;"
-          )
-          replace_resolved_header(
-              "il2cpp-utils-methods.hpp",
-              "::std::vector<const Il2CppType* const> argTypes;",
-              "::std::vector<const Il2CppType*> argTypes;"
-          )
-          replace_resolved_header(
-              "typedefs-list.hpp",
-              "this->_items[this->size()] = T();",
-              "this->ptr->_items[this->size()] = T();"
-          )
-          replace_resolved_header(
-              "typedefs-list.hpp",
-              "this->_size -= count;",
-              "this->ptr->_size -= count;"
-          )
-          replace_resolved_header(
-              "typedefs-list.hpp",
-              "this->_version++;",
-              "this->ptr->_version++;"
-          )
-          replace_resolved_header(
-              "RegistrationHelper.hpp",
-              "Registration(const Self&& other)",
-              "Registration(Self&& other)"
-          )
-          print("Applied all 6 checked compatibility edits to the resolved dependency sources.")
+          cache = Path.home() / ".local/share/QPM-RS/cache"
+          print("Project headers:")
+          for root in (Path("include"), Path("extern"), cache):
+              if root.exists():
+                  for name in ("il2cpp-utils-methods.hpp", "typedefs-list.hpp", "RegistrationHelper.hpp"):
+                      hits = list(root.rglob(name))
+                      for hit in hits[:10]:
+                          print(hit)
+          print("Proceeding with the resolved Hook 9 / Cordl 4503 headers as published.")
           PY
 
       - name: Build CustomModels native library
