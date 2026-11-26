@@ -532,17 +532,26 @@ jobs:
 
           def align(config):
               config.setdefault("workspace", {})["ndk"] = "^29.0.0"
+              target_ranges = {
+                  "beatsaber-hook": os.environ["HOOK_RANGE"],
+                  "bs-cordl": os.environ["CORDL_RANGE"],
+                  # The 1.45.3 mod catalog requires MetaCore 2.0.6.
+                  # CustomModels' upstream lockfile still pins MetaCore 1.4.0,
+                  # which cannot coexist with the installed core-mod graph.
+                  "metacore": "^2.0.6",
+                  "custom-types": "^0.21.2",
+                  "paper2_scotland2": "^4.8.0",
+              }
               for dep in config.get("dependencies", []):
-                  if dep.get("id") == "beatsaber-hook":
-                      dep["versionRange"] = os.environ["HOOK_RANGE"]
-                  elif dep.get("id") == "bs-cordl":
-                      dep["versionRange"] = os.environ["CORDL_RANGE"]
+                  dep_id = dep.get("id")
+                  if dep_id in target_ranges:
+                      dep["versionRange"] = target_ranges[dep_id]
 
           align(qpm)
           align(shared["config"])
 
-          # Keep the upstream dependency graph intact; only migrate the two
-          # Beat Saber API foundations and the NDK before the first compile.
+          # Refresh the complete dependency graph so the generated QMOD no
+          # longer carries the incompatible MetaCore 1.4.0 dependency lock.
           qpm_path.write_text(json.dumps(qpm, indent=2) + "\n")
           shared_path.write_text(json.dumps(shared, indent=2) + "\n")
 
@@ -551,7 +560,7 @@ jobs:
           Path("mod.template.json").write_text(json.dumps(template, indent=2) + "\n")
           PY
           qpm ndk resolve -d
-          qpm restore
+          qpm restore --update
 
       - name: Add missing standard vector include to CustomModels zip header
         working-directory: CustomModels
