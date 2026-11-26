@@ -566,7 +566,7 @@ jobs:
               anchor = "#include <string>"
               if data.count(anchor) != 1:
                   raise SystemExit("Expected exactly one <string> include in include/zip.hpp")
-              addition = "".join(f"\\n#include <{header}>" for header in missing)
+              addition = "".join(f"\n#include <{header}>" for header in missing)
               path.write_text(data.replace(anchor, anchor + addition, 1))
               print("Added required standard headers: " + ", ".join(missing))
           else:
