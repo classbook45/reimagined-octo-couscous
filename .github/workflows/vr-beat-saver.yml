@@ -464,3 +464,143 @@ jobs:
             reports/
           if-no-files-found: warn
           retention-days: 14
+
+  custommodels:
+    name: Build CustomModels separately for Beat Saber 1.45.3
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      CUSTOMMODELS_REVISION: "28c049c2d24e0d9a0172d42db07ec80e72a3d62d"
+      ANDROID_NDK_VERSION: "29.0.14206865"
+      PACKAGE_VERSION: "1.45.3_30054"
+      CORDL_RANGE: "^4503.0.0"
+      HOOK_RANGE: "^9.3.0"
+
+    steps:
+      - name: Checkout pinned CustomModels source
+        uses: actions/checkout@v4
+        with:
+          repository: Metalit/CustomModels
+          ref: ${{ env.CUSTOMMODELS_REVISION }}
+          path: CustomModels
+          submodules: true
+          lfs: true
+
+      - name: Set up Android SDK and pinned NDK
+        uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+      - name: Install pinned NDK
+        run: |
+          sdkmanager --install "platform-tools" "ndk;${ANDROID_NDK_VERSION}"
+          NDK_PATH="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
+          test -f "$NDK_PATH/source.properties"
+          {
+            echo "ANDROID_NDK_HOME=$NDK_PATH"
+            echo "ANDROID_NDK_ROOT=$NDK_PATH"
+            echo "ANDROID_NDK_LATEST_HOME=$NDK_PATH"
+          } >> "$GITHUB_ENV"
+          grep "Pkg.Revision" "$NDK_PATH/source.properties"
+
+      - name: Install QPM and verify source revision
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-linux-x64.zip
+          unzip -oq qpm.zip -d /tmp/qpm
+          QPM_BIN="$(find /tmp/qpm -type f -name qpm -print -quit)"
+          test -n "$QPM_BIN"
+          sudo install -m 755 "$QPM_BIN" /usr/local/bin/qpm
+          test "$(git rev-parse HEAD)" = "$CUSTOMMODELS_REVISION"
+          qpm --version
+          cmake --version
+          ninja --version
+          pwsh --version
+
+      - name: Align only the Beat Saber toolchain and refresh dependency lock
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json
+          from pathlib import Path
+
+          qpm_path = Path("qpm.json")
+          shared_path = Path("qpm.shared.json")
+          qpm = json.loads(qpm_path.read_text())
+          shared = json.loads(shared_path.read_text())
+
+          def align(config):
+              config.setdefault("workspace", {})["ndk"] = "^29.0.0"
+              for dep in config.get("dependencies", []):
+                  if dep.get("id") == "beatsaber-hook":
+                      dep["versionRange"] = "${HOOK_RANGE}"
+                  elif dep.get("id") == "bs-cordl":
+                      dep["versionRange"] = "${CORDL_RANGE}"
+
+          align(qpm)
+          align(shared["config"])
+          shared["restoredDependencies"] = []
+
+          # Keep the upstream dependency graph intact; only migrate the two
+          # Beat Saber API foundations and the NDK before the first compile.
+          qpm_path.write_text(json.dumps(qpm, indent=2) + "\n")
+          shared_path.write_text(json.dumps(shared, indent=2) + "\n")
+
+          template = json.loads(Path("mod.template.json").read_text())
+          template["packageVersion"] = "${PACKAGE_VERSION}"
+          Path("mod.template.json").write_text(json.dumps(template, indent=2) + "\n")
+          PY
+          qpm ndk resolve -d
+          qpm restore
+
+      - name: Build CustomModels native library
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          test -f qpm_defines.cmake
+          pwsh ./scripts/build.ps1 -Clean
+          LIBRARY="$(find build -type f -name 'libcustommodels.so' -print -quit)"
+          test -n "$LIBRARY"
+          file "$LIBRARY"
+          readelf -h "$LIBRARY" | grep -E 'Class:|Machine:'
+
+      - name: Create and validate CustomModels QMOD
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          pwsh ./scripts/createqmod.ps1 -QmodName CustomModels
+          python3 - <<'PY'
+          import pathlib, struct, zipfile
+          path = pathlib.Path("CustomModels.qmod")
+          if not path.is_file():
+              raise SystemExit("CustomModels.qmod was not created")
+          with zipfile.ZipFile(path) as archive:
+              names = archive.namelist()
+              libs = [archive.read(name) for name in names if name.endswith("libcustommodels.so")]
+          if not libs:
+              raise SystemExit("QMOD does not contain libcustommodels.so")
+          valid = any(
+              len(data) >= 20 and data[:4] == b"\\x7fELF" and
+              data[4] == 2 and data[5] == 1 and
+              struct.unpack("<H", data[18:20])[0] == 183
+              for data in libs
+          )
+          if not valid:
+              raise SystemExit("CustomModels QMOD does not contain an ARM64 ELF library")
+          print("Validated ARM64 CustomModels QMOD:", path)
+          print("QMOD entries:", names)
+          PY
+          mkdir -p ../artifacts
+          cp CustomModels.qmod ../artifacts/
+
+      - name: Upload CustomModels build and QMOD
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: custommodels-bs1.45.3
+          path: |
+            CustomModels/build/
+            CustomModels/CustomModels.qmod
+          if-no-files-found: warn
+          retention-days: 14
