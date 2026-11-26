@@ -541,6 +541,9 @@ jobs:
                   "metacore": "^2.0.6",
                   "custom-types": "^0.21.2",
                   "paper2_scotland2": "^4.8.0",
+                  # rapidjson-macros 2.1.0 requires Hook 6.x; v3.0.0 is
+                  # the compatible release used by current Hook 9.3 projects.
+                  "rapidjson-macros": "^3.0.0",
               }
               for dep in config.get("dependencies", []):
                   dep_id = dep.get("id")
