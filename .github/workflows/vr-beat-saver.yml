@@ -544,6 +544,9 @@ jobs:
                   # rapidjson-macros 2.1.0 requires Hook 6.x; v3.0.0 is
                   # the compatible release used by current Hook 9.3 projects.
                   "rapidjson-macros": "^3.0.0",
+                  # config-utils 2.x requires Hook 7.x and RapidJSON macros
+                  # 2.x; use the verified 3.0.0 line for Hook 9 projects.
+                  "config-utils": "^3.0.0",
               }
               for dep in config.get("dependencies", []):
                   dep_id = dep.get("id")
