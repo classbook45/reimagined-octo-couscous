@@ -540,6 +540,9 @@ jobs:
                   # which cannot coexist with the installed core-mod graph.
                   "metacore": "^2.0.6",
                   "custom-types": "^0.21.2",
+                  # Lapiz 0.3.7 is the current line for Hook 9 / Cordl 4503
+                  # and supports CustomTypes 0.21.x (unlike Lapiz 0.2.x).
+                  "lapiz": "^0.3.7",
                   "paper2_scotland2": "^4.8.0",
                   # rapidjson-macros 2.1.0 requires Hook 6.x; v3.0.0 is
                   # the compatible release used by current Hook 9.3 projects.
