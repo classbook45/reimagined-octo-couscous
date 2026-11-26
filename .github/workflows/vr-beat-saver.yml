@@ -506,7 +506,7 @@ jobs:
         working-directory: CustomModels
         run: |
           set -euo pipefail
-          curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/latest/download/qpm-linux-x64.zip
+          curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/download/v1.5.11/qpm-linux-x64.zip
           unzip -oq qpm.zip -d /tmp/qpm
           QPM_BIN="$(find /tmp/qpm -type f -name qpm -print -quit)"
           test -n "$QPM_BIN"
