@@ -675,6 +675,23 @@ jobs:
           print("Proceeding with the resolved Hook 9 / Cordl 4503 headers as published.")
           PY
 
+      - name: Enable C++23 required by Hook 9.3
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          from pathlib import Path
+          path = Path("CMakeLists.txt")
+          source = path.read_text()
+          old = "set(CMAKE_CXX_STANDARD 20)\\nset(CMAKE_CXX_STANDARD_REQUIRED 20)"
+          new = "set(CMAKE_CXX_STANDARD 23)\\nset(CMAKE_CXX_STANDARD_REQUIRED ON)"
+          if source.count(old) != 1:
+              raise SystemExit("Expected the upstream C++20 standard declaration exactly once")
+          path.write_text(source.replace(old, new, 1))
+          print("Updated CustomModels to C++23 for Hook 9.3 std::expected APIs")
+          PY
+          grep -n "CMAKE_CXX_STANDARD" CMakeLists.txt
+
       - name: Build CustomModels native library
         working-directory: CustomModels
         run: |
