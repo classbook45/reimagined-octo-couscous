@@ -550,6 +550,9 @@ jobs:
                   # config-utils 2.x requires Hook 7.x and RapidJSON macros
                   # 2.x; use the verified 3.0.0 line for Hook 9 projects.
                   "config-utils": "^3.0.0",
+                  # BSML 0.4.x hard-pins CustomTypes 0.18.x; 0.6.7
+                  # supports the 0.21.x API used by this Beat Saber target.
+                  "bsml": "^0.6.7",
               }
               for dep in config.get("dependencies", []):
                   dep_id = dep.get("id")
