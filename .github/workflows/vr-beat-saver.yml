@@ -522,7 +522,7 @@ jobs:
         run: |
           set -euo pipefail
           python3 - <<'PY'
-          import json
+          import json, os
           from pathlib import Path
 
           qpm_path = Path("qpm.json")
@@ -534,9 +534,9 @@ jobs:
               config.setdefault("workspace", {})["ndk"] = "^29.0.0"
               for dep in config.get("dependencies", []):
                   if dep.get("id") == "beatsaber-hook":
-                      dep["versionRange"] = "${HOOK_RANGE}"
+                      dep["versionRange"] = os.environ["HOOK_RANGE"]
                   elif dep.get("id") == "bs-cordl":
-                      dep["versionRange"] = "${CORDL_RANGE}"
+                      dep["versionRange"] = os.environ["CORDL_RANGE"]
 
           align(qpm)
           align(shared["config"])
@@ -548,7 +548,7 @@ jobs:
           shared_path.write_text(json.dumps(shared, indent=2) + "\n")
 
           template = json.loads(Path("mod.template.json").read_text())
-          template["packageVersion"] = "${PACKAGE_VERSION}"
+          template["packageVersion"] = os.environ["PACKAGE_VERSION"]
           Path("mod.template.json").write_text(json.dumps(template, indent=2) + "\n")
           PY
           qpm ndk resolve -d
@@ -581,7 +581,7 @@ jobs:
           if not libs:
               raise SystemExit("QMOD does not contain libcustommodels.so")
           valid = any(
-              len(data) >= 20 and data[:4] == b"\\x7fELF" and
+              len(data) >= 20 and data[:4] == b"\x7fELF" and
               data[4] == 2 and data[5] == 1 and
               struct.unpack("<H", data[18:20])[0] == 183
               for data in libs
