@@ -443,6 +443,31 @@ replace_once("src/hooks.cpp", ".try_cast<BombNoteController>()", ".try_cast<Bomb
 print("Applied guarded CustomModels -> Beat Saber 1.45.3 / Hook 9.3 source migrations.")
 
 
+# MetaCore 2 moved all Beat Saber UI helpers into MetaCoreBS.
+replace_once("src/settings.cpp", '"metacore/shared/ui.hpp"', '"metacore-bs/shared/ui.hpp"')
+
+# Hook 9.3 exposes utils.hpp; the legacy nested utils/utils.h path no longer exists.
+replace_once("src/zip.cpp", '"beatsaber-hook/shared/utils/utils.h"', '"beatsaber-hook/shared/utils.hpp"')
+
+# HMUI.TableView.IDataSource is an abstract interface in generated Cordl.
+# Hook's metadata_getter intentionally has no specialization for abstract
+# interface methods, so resolve their MethodInfo by declaring class and arity.
+replace_once(
+    "include/settings.hpp",
+    "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize, &HMUI::TableView::IDataSource::CellSize);",
+    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1}), int idx);',
+)
+replace_once(
+    "include/settings.hpp",
+    "DECLARE_OVERRIDE_METHOD_MATCH(int, NumberOfCells, &HMUI::TableView::IDataSource::NumberOfCells);",
+    'DECLARE_OVERRIDE_METHOD(int, NumberOfCells, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"NumberOfCells", 0}));',
+)
+replace_once(
+    "include/settings.hpp",
+    "DECLARE_OVERRIDE_METHOD_MATCH(HMUI::TableCell*, CellForIdx, &HMUI::TableView::IDataSource::CellForIdx, HMUI::TableView*, int idx);",
+    'DECLARE_OVERRIDE_METHOD(HMUI::TableCell*, CellForIdx, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellForIdx", 2}), HMUI::TableView*, int idx);',
+)
+
 # Finish the MetaCore 2 / MetaCoreBS split and Beat Saber 1.45.3 generated APIs.
 add_include("src/hooks.cpp", '#include "hooks.hpp"', '#include "System/String.hpp"')
 add_include("src/note.cpp", '#include "note.hpp"', '#include "System/String.hpp"')
