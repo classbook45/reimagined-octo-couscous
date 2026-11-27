@@ -486,6 +486,13 @@ jobs:
           submodules: true
           lfs: true
 
+      - name: Checkout Operation Beat Saver migration scripts
+        uses: actions/checkout@v4
+        with:
+          repository: classbook45/reimagined-octo-couscous
+          ref: ${{ github.sha }}
+          path: operation-beat-saver
+
       - name: Set up Android SDK and pinned NDK
         uses: android-actions/setup-android@v3
         with:
@@ -721,6 +728,14 @@ jobs:
           print("Migrated Hook 9 header locations in:")
           print("\\n".join(changed))
           PY
+
+      - name: Port CustomModels source APIs to Beat Saber 1.45.3
+        working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 ../operation-beat-saver/.github/operation-beat-saver/scripts/port_custommodels_1453.py
+          git diff --check
+          git diff --stat
 
       - name: Build CustomModels native library
         working-directory: CustomModels
