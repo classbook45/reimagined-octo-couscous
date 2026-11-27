@@ -672,14 +672,14 @@ jobs:
           grep -n 'libreflectcpp.so' CMakeLists.txt
           grep -n 'zzzz__IList_1_impl.hpp' src/defaults.cpp
 
-      - name: Build CustomModels native library
+      - name: Build CustomModels native library with bounded auto-fixes
         working-directory: CustomModels
         run: |
           set -euo pipefail
           test -f qpm_defines.cmake
           rm -rf build
           cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -DHOT_RELOAD=OFF -B build .
-          cmake --build build --parallel
+          python3 ../.github/operation-beat-saver/scripts/autofix_custommodels_build.py
           LIBRARY="$(find build -type f -name 'libcustommodels.so' -print -quit)"
           test -n "$LIBRARY"
           file "$LIBRARY"
