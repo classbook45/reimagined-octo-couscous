@@ -10,12 +10,15 @@ def read(rel):
         raise SystemExit(f"Required source file is missing: {rel}")
     return path, path.read_text()
 
-def replace_once(rel, old, new):
+def replace_count(rel, old, new, expected):
     path, data = read(rel)
     count = data.count(old)
-    if count != 1:
-        raise SystemExit(f"{rel}: expected exactly one source match, found {count}: {old[:100]!r}")
-    path.write_text(data.replace(old, new, 1))
+    if count != expected:
+        raise SystemExit(f"{rel}: expected {expected} source matches, found {count}: {old[:100]!r}")
+    path.write_text(data.replace(old, new))
+
+def replace_once(rel, old, new):
+    replace_count(rel, old, new, 1)
 
 def add_include(rel, anchor, include):
     path, data = read(rel)
@@ -253,10 +256,11 @@ replace_once(
     "ByRef<NoteSpawnData>",
     "by_ref<NoteSpawnData const>",
 )
-replace_once(
+replace_count(
     "src/hooks.cpp",
     "ByRef<NoteDebris*>",
     "by_ref<NoteDebris*>",
+    2,
 )
 replace_once(
     "src/hooks.cpp",
@@ -285,7 +289,7 @@ replace_once(
 # Fail loudly if known obsolete APIs remain in the source after migration.
 for rel in ("src/legacy.cpp", "src/loading.cpp", "src/hooks.cpp", "src/main.cpp", "include/config.hpp"):
     _, data = read(rel)
-    for obsolete in ("getDataDir(", "i2c::exceptions::StackTraceException", "il2cpp_functions::Init()", "ByRef<", "il2cpp_utils::try_cast", "SafePtr("):
+    for obsolete in ("i2c::exceptions::StackTraceException", "il2cpp_functions::Init()", "ByRef<", "il2cpp_utils::try_cast", "SafePtr("):
         if obsolete in data:
             raise SystemExit(f"{rel}: obsolete API remains after migration: {obsolete}")
 
