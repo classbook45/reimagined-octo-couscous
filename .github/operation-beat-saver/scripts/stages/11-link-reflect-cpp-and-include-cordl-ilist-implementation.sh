@@ -14,6 +14,17 @@ if not library.is_file() or library.stat().st_size == 0:
     library.parent.mkdir(parents=True, exist_ok=True)
     library.write_bytes(matches[0].read_bytes())
 
+# Hook 9.4 pulls Flamingo transitively, but QPM may keep its binary in
+# the package cache instead of copying it into this project's extern/libs.
+flamingo_library = Path("extern/libs/libflamingo.so")
+if not flamingo_library.is_file() or flamingo_library.stat().st_size == 0:
+    cache = Path.home() / ".local/share/QPM-RS/cache/flamingo/1.2.1"
+    matches = list(cache.rglob("libflamingo.so"))
+    if len(matches) != 1 or matches[0].stat().st_size == 0:
+        raise SystemExit(f"Expected one cached Flamingo 1.2.1 shared library, found {matches}")
+    flamingo_library.parent.mkdir(parents=True, exist_ok=True)
+    flamingo_library.write_bytes(matches[0].read_bytes())
+
 cmake = Path("CMakeLists.txt")
 source = cmake.read_text()
 anchor = "include(extern.cmake)"
@@ -47,5 +58,7 @@ grep -n 'libreflectcpp.so' CMakeLists.txt
 grep -n 'zzzz__IList_1_impl.hpp' src/defaults.cpp
 
 test -s extern/libs/libflamingo.so
-"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only extern/libs/libflamingo.so | c++filt | grep -F "flamingo::Install(flamingo::HookInfo&&)"
+"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only extern/libs/libflamingo.so > /tmp/flamingo.symbols
+c++filt < /tmp/flamingo.symbols > /tmp/flamingo.demangled
+grep -F "flamingo::Install(flamingo::HookInfo&&)" /tmp/flamingo.demangled
 grep -n "libflamingo.so" CMakeLists.txt
