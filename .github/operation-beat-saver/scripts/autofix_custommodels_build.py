@@ -14,7 +14,7 @@ import sys
 ROOT = Path.cwd()
 SOURCE_DIRS = (ROOT / "include", ROOT / "src")
 DEPENDENCY_HEADERS = ROOT / "extern" / "includes"
-MAX_ATTEMPTS = 8
+MAX_ATTEMPTS = 12
 
 def source_files():
     for directory in SOURCE_DIRS:
@@ -135,6 +135,43 @@ def repair_unique_missing_headers(output):
             changed.append(f"{include} -> {replacement}")
     return changed
 
+def repair_undefined_symbols(output):
+    # Resolve known dependency-owned symbols by verifying the actual exported ABI.
+    repairs = {
+        'flamingo::Install(flamingo::HookInfo&&)': 'libflamingo.so',
+    }
+    symbols = sorted(set(re.findall(r'undefined symbol: ([^\\n]+)', output)))
+    changed = []
+    for symbol in symbols:
+        library_name = next((name for needle, name in repairs.items() if needle in symbol), None)
+        if not library_name:
+            continue
+        library = ROOT / 'extern' / 'libs' / library_name
+        if not library.is_file() or library.stat().st_size == 0:
+            print(f'SYMBOL REPAIR FAILED: required dependency library is missing: {library_name}')
+            continue
+        ndk = Path(__import__('os').environ.get('ANDROID_NDK_ROOT', ''))
+        nm = ndk / 'toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm'
+        if not nm.is_file():
+            continue
+        proc = subprocess.run([str(nm), '-D', '--defined-only', str(library)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        demangled = subprocess.run(['c++filt'], input=proc.stdout, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        if not any(symbol in line for line in demangled.stdout.splitlines()):
+            print(f'SYMBOL REPAIR REFUSED: {library_name} does not export {symbol}')
+            continue
+        cmake = ROOT / 'CMakeLists.txt'
+        data = cmake.read_text()
+        anchor = 'include(extern.cmake)'
+        if data.count(anchor) != 1:
+            print('SYMBOL REPAIR REFUSED: CMake insertion anchor is not unique.')
+            continue
+        link = 'target_link_libraries(${COMPILE_ID} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/libs/' + library_name + '")'
+        if link not in data:
+            data = data.replace(anchor, anchor + '\\n\\n# Auto-linked after verifying the exported symbol: ' + symbol + '\\n' + link, 1)
+            cmake.write_text(data)
+            changed.append('CMakeLists.txt: linked ' + library_name + ' for ' + symbol)
+            print('AUTO-LINKED ' + library_name + ': verified export for ' + symbol)
+    return changed
 def run_build():
     proc = subprocess.run(
         ["cmake", "--build", "build", "--parallel"],
@@ -149,7 +186,7 @@ def diagnostic_summary(output):
 
 def fingerprint():
     digest = hashlib.sha256()
-    for path in sorted(source_files()):
+    for path in sorted([*source_files(), ROOT / 'CMakeLists.txt']):
         digest.update(path.relative_to(ROOT).as_posix().encode())
         digest.update(path.read_bytes())
     return digest.hexdigest()
@@ -166,6 +203,7 @@ def main():
         before = fingerprint()
         fixed = apply_reviewed_source_fixes()
         fixed += repair_unique_missing_headers(output)
+        fixed += repair_undefined_symbols(output)
         after = fingerprint()
         if before == after or after in seen:
             print("\nLOCAL REPAIR STOPPED: no new safe patch is available.", file=sys.stderr)
