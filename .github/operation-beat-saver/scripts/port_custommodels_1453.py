@@ -441,3 +441,81 @@ replace_once("src/hooks.cpp", ".try_cast<GameNoteController>()", ".try_cast<Game
 replace_once("src/hooks.cpp", ".try_cast<BombNoteController>()", ".try_cast<BombNoteController*>()")
 
 print("Applied guarded CustomModels -> Beat Saber 1.45.3 / Hook 9.3 source migrations.")
+
+
+# Finish the MetaCore 2 / MetaCoreBS split and Beat Saber 1.45.3 generated APIs.
+add_include("src/hooks.cpp", '#include "hooks.hpp"', '#include "System/String.hpp"')
+add_include("src/note.cpp", '#include "note.hpp"', '#include "System/String.hpp"')
+replace_once(
+    "src/pointers.cpp",
+    '#include "metacore/shared/input.hpp"',
+    '#include "metacorebs/shared/input.hpp"',
+)
+add_include(
+    "src/hooks.cpp",
+    '#include "GlobalNamespace/GameplayCoreSceneSetupData.hpp"',
+    '#include "GlobalNamespace/BeatmapLevelsModel.hpp"',
+)
+add_include(
+    "src/hooks.cpp",
+    '#include "GlobalNamespace/GameplayCoreSceneSetupData.hpp"',
+    '#include "GlobalNamespace/IBeatmapLevelData.hpp"',
+)
+
+# The 1.45.3 GameplayCoreSceneSetupData constructor has a different signature:
+# no bool between PracticeSettings and EnvironmentInfoSO, and the final args
+# are EnvironmentsListModel, bool, BeatmapLevelsModel, IBeatmapLevelData.
+replace_once(
+    "src/hooks.cpp",
+    '''    PracticeSettings* p4,
+    bool p5,
+    EnvironmentInfoSO* p6,
+    EnvironmentInfoSO* p7,
+    ColorScheme* colorScheme,
+    SettingsManager* p9,
+    AudioClipAsyncLoader* p10,
+    BeatmapDataLoader* p11,
+    BeatmapLevelsEntitlementModel* p12,
+    bool p13,
+    bool p14,
+    EnvironmentsListModel* p15,
+    System::Nullable_1<RecordingToolManager::SetupData> p16
+) {
+    GameplayCoreSceneSetupData_ctor(self, p0, p1, modifiers, p3, p4, p5, p6, p7, colorScheme, p9, p10, p11, p12, p13, p14, p15, p16);''',
+    '''    PracticeSettings* p4,
+    EnvironmentInfoSO* p6,
+    EnvironmentInfoSO* p7,
+    ColorScheme* colorScheme,
+    SettingsManager* p9,
+    AudioClipAsyncLoader* p10,
+    BeatmapDataLoader* p11,
+    BeatmapLevelsEntitlementModel* p12,
+    bool p13,
+    EnvironmentsListModel* p15,
+    bool p14,
+    BeatmapLevelsModel* p16,
+    IBeatmapLevelData* p17
+) {
+    GameplayCoreSceneSetupData_ctor(self, p0, p1, modifiers, p3, p4, p6, p7, colorScheme, p9, p10, p11, p12, p13, p15, p14, p16, p17);'''
+)
+
+# TutorialSceneSetupData no longer exposes colorScheme in the 1.45.3 API.
+replace_once(
+    "src/hooks.cpp",
+    '''    auto setupData = (TutorialSceneSetupData*) self->_sceneSetupDataArray[2];
+    CustomModels::colorScheme = setupData->colorScheme;
+    CustomModels::modifiers = nullptr;''',
+    '''    CustomModels::modifiers = nullptr;'''
+)
+
+# Catch stale split-header paths and removed generated members before compiling.
+for path in sorted((ROOT / "src").rglob("*")) + sorted((ROOT / "include").rglob("*")):
+    if not path.is_file() or path.suffix not in (".cpp", ".hpp", ".h"):
+        continue
+    source = path.read_text()
+    if '"metacore/shared/input.hpp"' in source:
+        raise SystemExit(f"{path.relative_to(ROOT)} still includes the removed MetaCore input header")
+    if "RecordingToolManager::SetupData" in source:
+        raise SystemExit(f"{path.relative_to(ROOT)} still uses removed RecordingToolManager::SetupData")
+    if "setupData->colorScheme" in source:
+        raise SystemExit(f"{path.relative_to(ROOT)} still accesses removed TutorialSceneSetupData::colorScheme")
