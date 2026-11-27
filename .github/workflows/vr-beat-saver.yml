@@ -130,6 +130,10 @@ jobs:
         working-directory: CustomModels
         run: |
           python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "13-create-and-validate-custommodels-qmod" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/13-create-and-validate-custommodels-qmod.sh"
+      - name: Simulate Quest Android loader and repair package dependencies
+        working-directory: CustomModels
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "14-quest-runtime-loader-preflight" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/14-quest-runtime-loader-preflight.sh"
       - name: Upload builds and diagnostics
         if: always()
         uses: actions/upload-artifact@v4
