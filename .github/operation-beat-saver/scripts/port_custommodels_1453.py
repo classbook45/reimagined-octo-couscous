@@ -384,4 +384,50 @@ for rel in ("src/legacy.cpp", "src/loading.cpp", "src/hooks.cpp", "src/main.cpp"
         if obsolete in data:
             raise SystemExit(f"{rel}: obsolete API remains after migration: {obsolete}")
 
+
+# Follow-up fixes verified against Hook 9.3 APIs and current compile diagnostics.
+add_include("src/material.cpp", '#include "material.hpp"', '#include "System/String.hpp"')
+replace_once(
+    "src/material.cpp",
+    '''    UnityEngine::Material* ret = allMaterials->FirstOrDefault([&name](UnityEngine::Material* material) {
+        return material->name->Length > 0 && !material->name->Contains("_replace") &&
+               name.find((std::string) material->name->ToLower()) != std::string::npos;
+    });''',
+    '''    UnityEngine::Material* ret = nullptr;
+    for (auto material : allMaterials) {
+        if (!material || !material->name || material->name->Length <= 0 || material->name->Contains("_replace"))
+            continue;
+        if (name.find(static_cast<std::string>(material->name->ToLower())) != std::string::npos) {
+            ret = material;
+            break;
+        }
+    }'''
+)
+
+add_include("src/loading.cpp", '#include "loading.hpp"', '#include "beatsaber-hook/shared/safeptr.hpp"')
+add_include("src/loading.cpp", '#include "loading.hpp"', '#include <cstdint>')
+add_include("src/loading.cpp", '#include "loading.hpp"', '#include <stdexcept>')
+replace_once(
+    "src/loading.cpp",
+    '''static auto LoadFromMemoryAsync = il2cpp_utils::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(
+        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"
+    );''',
+    '''static auto LoadFromMemoryAsync = i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint32_t>(
+        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"
+    );
+    if (!LoadFromMemoryAsync)
+        throw std::runtime_error("Could not resolve Unity AssetBundle::LoadFromMemoryAsync_Internal");'''
+)
+replace_once("src/loading.cpp", "auto request = LoadFromMemoryAsync(array, 0);", "auto request = (*LoadFromMemoryAsync)(array, 0);")
+replace_once(
+    "src/loading.cpp",
+    "[request = safe_ptr<UnityEngine::AssetBundleCreateRequest>(*request), file]()",
+    "[request = safe_ptr<UnityEngine::AssetBundleCreateRequest*>(request), file]()"
+)
+replace_once(
+    "src/loading.cpp",
+    "[this, bundle, request = safe_ptr<UnityEngine::AssetBundleRequest>(*request), assetName, file, onDone]()",
+    "[this, bundle, request = safe_ptr<UnityEngine::AssetBundleRequest*>(request), assetName, file, onDone]()"
+)
+
 print("Applied guarded CustomModels -> Beat Saber 1.45.3 / Hook 9.3 source migrations.")
