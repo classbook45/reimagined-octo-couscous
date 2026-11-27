@@ -848,3 +848,69 @@ jobs:
             CustomModels/CustomModels.qmod
           if-no-files-found: warn
           retention-days: 14
+
+  bundle-operation-beat-saver:
+    name: Assemble Operation Beat Saver 1.45.3 bundle
+    runs-on: ubuntu-latest
+    needs: [operation-beat-saver, custommodels]
+    if: needs.operation-beat-saver.result == 'success' && needs.custommodels.result == 'success'
+    steps:
+      - name: Download main Operation Beat Saver builds
+        uses: actions/download-artifact@v4
+        with:
+          name: operation-beat-saver-results
+          path: incoming/main
+
+      - name: Download CustomModels build
+        uses: actions/download-artifact@v4
+        with:
+          name: custommodels-bs1.45.3
+          path: incoming/custommodels
+
+      - name: Assemble and validate the combined mod bundle
+        run: |
+          set -euo pipefail
+          mkdir -p Operation-Beat-Saver-1.45.3/mods Operation-Beat-Saver-1.45.3/reports
+          find incoming/main/artifacts -maxdepth 1 -type f -name '*.qmod' -exec cp {} Operation-Beat-Saver-1.45.3/mods/ \;
+          CUSTOMMODELS_QMOD="$(find incoming/custommodels -type f -name 'CustomModels.qmod' -print -quit)"
+          test -n "$CUSTOMMODELS_QMOD"
+          cp "$CUSTOMMODELS_QMOD" Operation-Beat-Saver-1.45.3/mods/
+          if [[ -d incoming/main/reports ]]; then
+            cp -a incoming/main/reports/. Operation-Beat-Saver-1.45.3/reports/
+          fi
+          python3 - <<'PY'
+          from pathlib import Path
+          import json, zipfile
+
+          root = Path("Operation-Beat-Saver-1.45.3")
+          mods = sorted((root / "mods").glob("*.qmod"))
+          if not mods:
+              raise SystemExit("No QMOD packages were found for the combined bundle")
+          if not any(path.name == "CustomModels.qmod" for path in mods):
+              raise SystemExit("CustomModels.qmod is missing from the combined bundle")
+          manifest = {
+              "target": "Beat Saber 1.45.3",
+              "package_version": "1.45.3_30054",
+              "mods": [path.name for path in mods],
+          }
+          (root / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n")
+          output = Path("Operation-Beat-Saver-1.45.3.zip")
+          with zipfile.ZipFile(output, "w", zipfile.ZIP_DEFLATED) as archive:
+              for path in sorted(root.rglob("*")):
+                  if path.is_file():
+                      archive.write(path, path.relative_to(root.parent))
+          with zipfile.ZipFile(output) as archive:
+              names = archive.namelist()
+              if not any(name.endswith("/mods/CustomModels.qmod") for name in names):
+                  raise SystemExit("Combined archive validation failed: CustomModels is absent")
+          print("Combined Beat Saber 1.45.3 bundle:", output)
+          print("Included QMODs:", ", ".join(path.name for path in mods))
+          PY
+
+      - name: Upload combined Operation Beat Saver bundle
+        uses: actions/upload-artifact@v4
+        with:
+          name: operation-beat-saver-bs1.45.3-bundle
+          path: Operation-Beat-Saver-1.45.3.zip
+          if-no-files-found: error
+          retention-days: 14
