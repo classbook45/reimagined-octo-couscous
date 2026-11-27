@@ -789,7 +789,7 @@ jobs:
           print("Explicit reflect-cpp link and Cordl IList_1 template implementation are installed.")
           PY
           test -s extern/libs/libreflectcpp.so
-          llvm-nm -D --defined-only extern/libs/libreflectcpp.so > /tmp/reflectcpp.symbols
+          "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only extern/libs/libreflectcpp.so > /tmp/reflectcpp.symbols
           c++filt < /tmp/reflectcpp.symbols > /tmp/reflectcpp.demangled
           grep -q 'rfl::json::Writer::Writer()' /tmp/reflectcpp.demangled
           grep -q 'yyjson_read_opts' /tmp/reflectcpp.symbols
