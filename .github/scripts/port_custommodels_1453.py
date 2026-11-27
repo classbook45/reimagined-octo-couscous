@@ -458,6 +458,12 @@ source = source.replace(
 )
 hooks_cpp.write_text(source)
 
+# Profiles is a ConfigUtils::Value<Map> under config-utils 3; callers must access its map.
+settings_cpp = Path("src/settings.cpp")
+source = settings_cpp.read_text()
+source = source.replace("auto& profiles = getConfig().Profiles;", "auto& profiles = getConfig().Profiles.GetValue();")
+settings_cpp.write_text(source)
+
 # Fail closed if any known incompatible API references remain.
 all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
 for stale in (
