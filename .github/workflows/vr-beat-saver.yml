@@ -638,7 +638,7 @@ jobs:
               if actual_tuple is None or actual_tuple < minimum_tuple:
                   failures.append(f"{dep_id}: expected >= {minimum}, resolved {actual or 'missing'}")
           if failures:
-              raise SystemExit("Dependency graph is not aligned:\\n" + "\\n".join(failures))
+              raise SystemExit("Dependency graph is not aligned:\n" + "\n".join(failures))
           PY
 
           # CustomModels' CMakeLists.txt still consumes this legacy filename
@@ -737,7 +737,7 @@ jobs:
           if not changed:
               raise SystemExit("Expected legacy Hook header includes were not found; refusing a no-op migration")
           print("Migrated Hook 9 header locations in:")
-          print("\\n".join(changed))
+          print("\n".join(changed))
           PY
 
       - name: Port CustomModels source APIs to Beat Saber 1.45.3
@@ -774,7 +774,7 @@ jobs:
           if source.count(anchor) != 1:
               raise SystemExit("Expected exactly one include(extern.cmake) in CMakeLists.txt")
           if link not in source:
-              source = source.replace(anchor, anchor + "\\n\\n# ConfigUtils 3 uses reflect-cpp; link its QPM-restored implementation explicitly.\\n" + link, 1)
+              source = source.replace(anchor, anchor + "\n\n# ConfigUtils 3 uses reflect-cpp; link its QPM-restored implementation explicitly.\n" + link, 1)
               cmake.write_text(source)
 
           defaults = Path("src/defaults.cpp")
@@ -784,13 +784,15 @@ jobs:
           if source.count(anchor) != 1:
               raise SystemExit("defaults.cpp no longer matches the pinned Addressables include layout")
           if include not in source:
-              source = source.replace(anchor, anchor + "\\n" + include, 1)
+              source = source.replace(anchor, anchor + "\n" + include, 1)
               defaults.write_text(source)
           print("Explicit reflect-cpp link and Cordl IList_1 template implementation are installed.")
           PY
           test -s extern/libs/libreflectcpp.so
-          llvm-nm -D --defined-only extern/libs/libreflectcpp.so | c++filt | grep -q 'rfl::json::Writer::Writer()'
-          llvm-nm -D --defined-only extern/libs/libreflectcpp.so | grep -q 'yyjson_read_opts'
+          llvm-nm -D --defined-only extern/libs/libreflectcpp.so > /tmp/reflectcpp.symbols
+          c++filt < /tmp/reflectcpp.symbols > /tmp/reflectcpp.demangled
+          grep -q 'rfl::json::Writer::Writer()' /tmp/reflectcpp.demangled
+          grep -q 'yyjson_read_opts' /tmp/reflectcpp.symbols
           grep -n 'libreflectcpp.so' CMakeLists.txt
           grep -n 'zzzz__IList_1_impl.hpp' src/defaults.cpp
 
