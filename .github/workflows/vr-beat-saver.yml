@@ -20,6 +20,7 @@ on:
     paths:
       - '.github/workflows/vr-beat-saver.yml'
       - '.github/operation-beat-saver/patches/**'
+      - '.github/operation-beat-saver/scripts/**'
   workflow_dispatch:
     inputs:
       package_version:
