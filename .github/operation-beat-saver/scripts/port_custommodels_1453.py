@@ -552,10 +552,10 @@ replace_count(
     3,
 )
 
-# IDataSource::CellSize has zero parameters. The generated Cordl interface
-# declaration and the C++ implementation must agree exactly.
+# bs-cordl 4503 changes IDataSource::CellSize from CellSize() to CellSize(int).
+# Keep the one-argument interface registration and matching native implementation.
 replace_once(
-    "include/settings.hpp",
-    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1}), int idx);',
-    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 0}));',
+    "src/settings.cpp",
+    "float SelectionSettings::CellSize() {",
+    "float SelectionSettings::CellSize(int) {",
 )
