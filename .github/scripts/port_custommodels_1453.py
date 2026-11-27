@@ -34,6 +34,7 @@ for root in ROOTS:
         )
         updated = updated.replace("il2cpp_functions::", "i2c::functions::")
         updated = updated.replace("il2cpp_utils::", "i2c::")
+        updated = updated.replace("i2c::resolve_icall", "i2c::functions::resolve_icall")
         updated = re.sub(r"\bSafePtr\b", "safe_ptr", updated)
         updated = updated.replace('"metacore/shared/game.hpp"', '"metacore-bs/shared/game.hpp"')
         updated = updated.replace('"metacore/shared/internals.hpp"', '"metacore-bs/shared/internals.hpp"')
