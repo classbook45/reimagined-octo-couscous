@@ -559,3 +559,68 @@ replace_once(
     "float SelectionSettings::CellSize() {",
     "float SelectionSettings::CellSize(int) {",
 )
+
+# Runtime model-loading hardening. The original loader marked a file as loaded
+# even when Unity failed to return a GameObject. That poisoned currentFile and
+# prevented retrying; report the real failure and release the AssetBundle ref.
+replace_once(
+    "src/loading.cpp",
+    """                currentFile = file;
+                loadingFile = "";
+
+                this->bundle = bundle;
+                if (auto object = request->asset.try_cast<UnityEngine::GameObject>()) {
+                    asset = object.ptr();
+                    asset->hideFlags = asset->hideFlags | UnityEngine::HideFlags::DontUnloadUnusedAsset;
+                } else
+                    logger.error("failed to load asset {} for {}", assetName, file);
+
+                onDone(true, asset == nullptr);""",
+    """                loadingFile = "";
+                this->bundle = bundle;
+                if (auto object = request->asset.try_cast<UnityEngine::GameObject>()) {
+                    asset = object.ptr();
+                    currentFile = file;
+                    asset->hideFlags = asset->hideFlags | UnityEngine::HideFlags::DontUnloadUnusedAsset;
+                    logger.info("loaded model asset {} from {}", assetName, file);
+                    onDone(true, false);
+                } else {
+                    logger.error("Unity AssetBundle did not contain a GameObject named '{}' in '{}'", assetName, file);
+                    this->bundle = nullptr;
+                    RemoveLoad(file);
+                    onDone(false, true);
+                }"""
+)
+
+# Guard null Unity requests and surface failures instead of dereferencing them.
+replace_once(
+    "src/loading.cpp",
+    """        auto request = bundle->LoadAssetAsync<UnityEngine::GameObject*>(assetName);
+
+        BSML::MainThreadScheduler::ScheduleUntil(""",
+    """        auto request = bundle->LoadAssetAsync<UnityEngine::GameObject*>(assetName);
+        if (!request) {
+            logger.error("Unity returned a null AssetBundleRequest for '{}' in '{}'", assetName, file);
+            loadingFile = "";
+            RemoveLoad(file);
+            onDone(false, true);
+            return;
+        }
+
+        BSML::MainThreadScheduler::ScheduleUntil("""
+)
+
+replace_once(
+    "src/loading.cpp",
+    """        if (!bytes.empty())
+            LoadBundle(bytes, file);
+        else
+            onDone(nullptr);""",
+    """        if (!bytes.empty()) {
+            logger.debug("read {} bytes for model bundle '{}' (entry '{}')", bytes.size(), file, CustomModels::files[file].androidFileName);
+            LoadBundle(bytes, file);
+        } else {
+            logger.error("model bundle bytes are empty for '{}' (entry '{}'); check the archive and manifest", file, CustomModels::files[file].androidFileName);
+            onDone(nullptr);
+        }"""
+)
