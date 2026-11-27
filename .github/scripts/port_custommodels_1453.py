@@ -353,7 +353,7 @@ for root in ROOTS:
 
 loading_cpp = Path("src/loading.cpp")
 source = loading_cpp.read_text()
-source = source.replace('#include "loading.hpp"\n', '#include "loading.hpp"\n\n#include <algorithm>\n#include <set>\n#include "beatsaber-hook/shared/safeptr.hpp"\n')
+source = source.replace('#include "loading.hpp"\n', '#include "loading.hpp"\n\n#include <algorithm>\n#include <set>\n#include "beatsaber-hook/shared/safeptr.hpp"\n#include "beatsaber-hook/shared/byref.hpp"\n')
 source = source.replace(
     'auto array = ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()});',
     'auto array = ArrayW<uint8_t>(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
@@ -405,7 +405,7 @@ for stale in (
     "SafePtr",
     "getDataDir(",
     "ByRef<",
-    "SaberTrail_Awake",
+    "SaberTrail_Awake",\n    "i2c::try_cast",\n    "i2c::resolve_icall",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
