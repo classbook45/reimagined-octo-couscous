@@ -571,6 +571,22 @@ source = source.replace('HMUI::TableCell* SelectionSettings::CellForIdx(HMUI::Ta
                         'SelectionCellReturn SelectionSettings::CellForIdx(HMUI::TableView*, int32_t idx) {')
 settings_cpp.write_text(source)
 
+
+# Hook 9 / CORDL 4503 renamed the UnityW raw-pointer accessor and the old
+# Beat Saber TimeHelper static shim is absent; use the generated Unity API.
+trail_cpp = Path("src/trail.cpp")
+source = trail_cpp.read_text()
+source = source.replace(".unsafePtr()", ".unsafe_ptr()")
+source = source.replace("GlobalNamespace::TimeHelper::get_time()", "UnityEngine::Time::get_time()")
+trail_cpp.write_text(source)
+
+# The old nested Hook utility header was removed in Hook 9. The supported
+# shared/utils.hpp provides fileexists/writefile used by this translation unit.
+zip_cpp = Path("src/zip.cpp")
+source = zip_cpp.read_text()
+source = source.replace('"beatsaber-hook/shared/utils/utils.h"', '"beatsaber-hook/shared/utils.hpp"')
+zip_cpp.write_text(source)
+
 # Fail closed if any known incompatible API references remain.
 all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
 for stale in (
@@ -588,6 +604,9 @@ for stale in (
     "SaberTrail_Awake",
     "i2c::try_cast",
     "FirstOrDefault",
+    "unsafePtr()",
+    "TimeHelper::get_time()",
+    "beatsaber-hook/shared/utils/utils.h",
     "ArrayW<uint8_t>({",
     "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize",
 ):
