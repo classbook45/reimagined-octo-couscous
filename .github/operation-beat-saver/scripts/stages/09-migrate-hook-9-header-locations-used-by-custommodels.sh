@@ -5,6 +5,8 @@ from pathlib import Path
 replacements = {
     'beatsaber-hook/shared/utils/hooking.hpp': 'beatsaber-hook/shared/hooking.hpp',
     'beatsaber-hook/shared/utils/logging.hpp': 'beatsaber-hook/shared/utils.hpp',
+    'beatsaber-hook/shared/utils/utils.h': 'beatsaber-hook/shared/utils.hpp',
+    'metacore/shared/ui.hpp': 'metacore-bs/shared/ui.hpp',
 }
 changed = []
 for root in (Path("include"), Path("src")):
