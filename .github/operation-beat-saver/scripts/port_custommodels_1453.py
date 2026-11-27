@@ -624,3 +624,19 @@ replace_once(
             onDone(nullptr);
         }"""
 )
+
+replace_once(
+    "src/loading.cpp",
+    """    auto request = (*LoadFromMemoryAsync)(array, 0);""",
+    """    auto request = (*LoadFromMemoryAsync)(array, 0);
+    if (!request) {
+        logger.error("Unity returned a null AssetBundleCreateRequest for '{}'", file);
+        auto& failed = bundles[file];
+        decltype(failed.callbacks) callbacks;
+        callbacks.swap(failed.callbacks);
+        RemoveLoad(file);
+        for (auto& callback : callbacks)
+            callback(nullptr);
+        return;
+    }"""
+)
