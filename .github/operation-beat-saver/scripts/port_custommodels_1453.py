@@ -426,7 +426,7 @@ replace_once(
 )
 replace_once(
     "src/loading.cpp",
-    "auto request = (*LoadFromMemoryAsync)(array, 0);",
+    "auto request = LoadFromMemoryAsync(array, 0);",
     """UnityEngine::AssetBundleCreateRequest* request = nullptr;
     if (LoadFromMemoryAsync) {
         request = (*LoadFromMemoryAsync)(array, 0);
