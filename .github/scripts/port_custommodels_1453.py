@@ -1,0 +1,617 @@
+#!/usr/bin/env python3
+"""Deliberate, assertion-checked CustomModels port for Beat Saber 1.45.3."""
+
+from pathlib import Path
+import re
+
+ROOTS = (Path("include"), Path("src"))
+
+def edit(path, old, new, expected=1):
+    source = path.read_text()
+    count = source.count(old)
+    if count != expected:
+        raise SystemExit(f"{path}: expected {expected} occurrence(s), found {count}: {old!r}")
+    path.write_text(source.replace(old, new))
+
+# Hook 9 moved the public hook header and folded the old il2cpp utility namespaces
+# into i2c. These are explicit API renames, applied only to C++ source/header files.
+for root in ROOTS:
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".h", ".hpp", ".cpp"}:
+            continue
+        source = path.read_text()
+        updated = source.replace(
+            '"beatsaber-hook/shared/utils/hooking.hpp"',
+            '"beatsaber-hook/shared/hooking.hpp"'
+        )
+        updated = updated.replace(
+            '"beatsaber-hook/shared/utils/logging.hpp"',
+            '"beatsaber-hook/shared/utils.hpp"'
+        )
+        updated = updated.replace(
+            '"beatsaber-hook/shared/config/config-utils.hpp"',
+            '"beatsaber-hook/shared/utils.hpp"'
+        )
+        updated = updated.replace("il2cpp_functions::", "i2c::functions::")
+        updated = updated.replace("il2cpp_utils::", "i2c::")
+        updated = re.sub(r"\bSafePtr\b", "safe_ptr", updated)
+        updated = updated.replace('"metacore/shared/game.hpp"', '"metacore-bs/shared/game.hpp"')
+        updated = updated.replace('"metacore/shared/internals.hpp"', '"metacore-bs/shared/internals.hpp"')
+        updated = updated.replace('"metacore/shared/ui.hpp"', '"metacore-bs/shared/ui.hpp"')
+        if updated != source:
+            path.write_text(updated)
+
+# The 1.45.3 generated CORDL headers no longer expose this old transition type.
+# Gameplay color state is already supplied by MetaCoreBS; keep the tutorial path
+# functional without installing a hook against a nonexistent generated class.
+hooks_cpp = Path("src/hooks.cpp")
+source = hooks_cpp.read_text()
+source = source.replace('#include "hooks.hpp"\n', '#include "hooks.hpp"\n#include "System/String.hpp"\n')
+source = source.replace('#include "GlobalNamespace/TutorialScenesTransitionSetupDataSO.hpp"\n', "")
+pattern = re.compile(
+    r"// not sure why hooking TutorialSceneSetupData_ctor doesn't work, maybe too small somehow\?\s*"
+    r"MAKE_AUTO_HOOK_MATCH\(\s*TutorialScenesTransitionSetupDataSO_Init,.*?\n\}\n\n",
+    re.S
+)
+source, count = pattern.subn(
+    "// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated.\n\n",
+    source
+)
+if count != 1:
+    raise SystemExit(f"src/hooks.cpp: expected to remove exactly one obsolete tutorial transition hook, found {count}")
+hooks_cpp.write_text(source)
+
+# Hook 9 no longer has the legacy MAKE_AUTO_HOOK_MATCH helper. Preserve the
+# project's deferred-install lifecycle while using Hook 9's typed hook structs.
+hooks_hpp = Path("include/hooks.hpp")
+hooks_hpp.write_text(r'''#pragma once
+
+#include "beatsaber-hook/shared/hooking.hpp"
+#include "main.hpp"
+
+class Hooks {
+   private:
+    static inline std::vector<void (*)()> installFuncs;
+
+   public:
+    static inline void AddInstallFunc(void (*installFunc)()) { installFuncs.push_back(installFunc); }
+
+    static inline void Install() {
+        logger.info("Installing hooks...");
+        for (auto& func : installFuncs)
+            func();
+        logger.info("Installed all hooks!");
+    }
+};
+
+#define MAKE_AUTO_HOOK_MATCH(name_, method_, ret_type, ...)                                                        \
+    struct BS_HOOK_HIDDEN hook_##name_ {                                                                            \
+        static constexpr auto cast_test = []<typename T>() { return requires { static_cast<T>(method_); }; };      \
+        using func_t = ret_type (*)(__VA_ARGS__);                                                                   \
+        using cast_t = ::i2c::detail::method_check<cast_test, func_t>::type;                                         \
+        static_assert(cast_test.operator()<cast_t>(), "Hook method signature does not match!");                    \
+        static_assert(::i2c::detail::match_hookable<static_cast<cast_t>(method_)>, "Method cannot be hooked!");     \
+        __INTERNAL_HOOK_STRUCT(name_, ::i2c::metadata_getter<static_cast<cast_t>(method_)>::method_info(), ret_type, __VA_ARGS__) \
+    };                                                                                                              \
+    struct Auto_Install_##name_ {                                                                                   \
+        static void Install() { ::i2c::install_hook<hook_##name_>(logger); }                                         \
+        Auto_Install_##name_() { Hooks::AddInstallFunc(Install); }                                                   \
+    };                                                                                                              \
+    static Auto_Install_##name_ Auto_Install_Instance_##name_;                                                      \
+    ret_type hook_##name_::hook_m_##name_(__VA_ARGS__)
+''')
+
+# Hook 9 / MetaCore 2 split the Beat Saber-specific API into MetaCoreBS.
+# RapidjsonMacros 3 retains the model manifest serialization macros; config-utils
+# 3 is now used only for persisted mod settings.
+Path("include/json.hpp").write_text(r'''#pragma once
+
+#include "rapidjson-macros/shared/macros.hpp"
+#include "rapidjson-macros/shared/serialization.hpp"
+#include "UnityEngine/Color.hpp"
+
+namespace ConfigUtils {
+    DECLARE_JSON_STRUCT(Color) {
+        VALUE(float, r);
+        VALUE(float, g);
+        VALUE(float, b);
+        VALUE(float, a);
+
+        Color() = default;
+        Color(UnityEngine::Color const& value) : r(value.r), g(value.g), b(value.b), a(value.a) {}
+        Color& operator=(UnityEngine::Color const& value) {
+            r = value.r; g = value.g; b = value.b; a = value.a;
+            return *this;
+        }
+        operator UnityEngine::Color() const { return {r, g, b, a}; }
+    };
+    inline UnityEngine::Color operator*(UnityEngine::Color const& lhs, Color const& rhs) {
+        auto value = static_cast<UnityEngine::Color>(rhs);
+        return {lhs.r * value.r, lhs.g * value.g, lhs.b * value.b, lhs.a * value.a};
+    }
+}
+
+namespace CustomModels {
+    DECLARE_JSON_STRUCT(TrailObject) {
+        VALUE(int, trailId);
+        VALUE(bool, isTop);
+    };
+
+    DECLARE_JSON_STRUCT(TrailInfo) {
+        VALUE(int, trailId);
+        VALUE(int, colorType);
+        VALUE(ConfigUtils::Color, trailColor);
+        VALUE(ConfigUtils::Color, multiplierColor);
+        VALUE(int, length);
+        VALUE(float, whiteStep);
+    };
+
+    DECLARE_JSON_STRUCT(SaberInfo) {
+        VALUE_DEFAULT(bool, hasTrail, false);
+        VALUE_DEFAULT(bool, keepFakeGlow, false);
+        VALUE_DEFAULT(bool, isLegacy, false);
+    };
+
+    DECLARE_JSON_STRUCT(NoteInfo) {
+        VALUE_DEFAULT(bool, hasDebris, false);
+        VALUE_DEFAULT(bool, hasChainHeadDebris, false);
+        VALUE_DEFAULT(bool, hasChainLinkDebris, false);
+        VALUE_DEFAULT(bool, hasSlider, false);
+        VALUE_DEFAULT(bool, hasBomb, false);
+        VALUE_DEFAULT(bool, showArrows, false);
+        VALUE_DEFAULT(bool, isMirrorable, false);
+        VALUE_DEFAULT(bool, isLegacy, false);
+    };
+
+    DECLARE_JSON_STRUCT(WallInfo) {
+        VALUE_DEFAULT(bool, replaceCoreMaterial, false);
+        VALUE_DEFAULT(bool, replaceFrameMaterial, false);
+        VALUE_DEFAULT(bool, replaceCoreMesh, false);
+        VALUE_DEFAULT(bool, replaceFrameMesh, false);
+        VALUE_DEFAULT(bool, disableCore, false);
+        VALUE_DEFAULT(bool, disableFrame, false);
+        VALUE_DEFAULT(bool, disableFakeGlow, false);
+        VALUE_DEFAULT(bool, isMirrorable, false);
+        VALUE_DEFAULT(bool, isLegacy, false);
+    };
+
+    DECLARE_JSON_STRUCT(Descriptor) {
+        VALUE(std::string, author);
+        VALUE(std::string, objectName);
+        VALUE(std::string, description);
+        VALUE_DEFAULT(std::string, coverImage, "");
+    };
+
+    DECLARE_JSON_STRUCT(Manifest) {
+        VALUE(std::string, androidFileName);
+        VALUE(Descriptor, descriptor);
+        VALUE(UnparsedJSON, config);
+    };
+
+    DECLARE_JSON_STRUCT(LegacyDescriptor) {
+        VALUE(std::string, authorName);
+        VALUE(std::string, objectName);
+        VALUE(std::string, description);
+    };
+
+    DECLARE_JSON_STRUCT(LegacyTrail) {
+        VALUE(std::string, name);
+        VALUE(int, colorType);
+        VALUE(ConfigUtils::Color, trailColor);
+        VALUE(ConfigUtils::Color, multiplierColor);
+        VALUE(int, length);
+        VALUE(float, whiteStep);
+    };
+
+    DECLARE_JSON_STRUCT(LegacySaberConfig) {
+        VALUE_DEFAULT(bool, enableFakeGlow, false);
+        VALUE_DEFAULT(bool, hasCustomTrails, false);
+        VECTOR_DEFAULT(LegacyTrail, leftTrails, {});
+        VECTOR_DEFAULT(LegacyTrail, rightTrails, {});
+    };
+
+    DECLARE_JSON_STRUCT(LegacyNoteConfig) {
+        VALUE_DEFAULT(bool, disableBaseGameArrows, true);
+        VALUE_DEFAULT(bool, hasBomb, false);
+        VALUE_DEFAULT(bool, hasDebris, false);
+    };
+
+    DECLARE_JSON_STRUCT(LegacyWallConfig) {
+        VALUE_DEFAULT(bool, replaceCoreMaterial, false);
+        VALUE_DEFAULT(bool, replaceCoreMesh, false);
+        VALUE_DEFAULT(bool, disableFrame, false);
+        VALUE_DEFAULT(bool, disableFakeGlow, false);
+        VALUE_DEFAULT(bool, replaceFrameMaterial, false);
+        VALUE_DEFAULT(bool, replaceFrameMesh, false);
+        VALUE_DEFAULT(bool, scoreSubmissionDisabled, false);
+        VALUE_DEFAULT(bool, moreThan1Core, false);
+        VALUE_DEFAULT(bool, moreThan1Frame, false);
+    };
+}
+''')
+
+Path("include/config.hpp").write_text(r'''#pragma once
+
+#include "config-utils/shared/config-utils.hpp"
+
+namespace CustomModels {
+    // config-utils 3 uses reflect-cpp, which needs plain aggregate structs.
+    // RapidJSON-generated structs inherit a data-bearing base and are not valid
+    // reflect-cpp models; keep manifest serialization separate in json.hpp.
+    struct SaberSettings {
+        float length = 1;
+        bool overrideLength = false;
+        float width = 1;
+        bool overrideWidth = false;
+        float Length() const { return overrideLength ? length : 1; }
+        float Width() const { return overrideWidth ? width : 1; }
+    };
+    struct TrailSettings {
+        bool whiteStep = false;
+        float length = 1;
+        bool overrideLength = false;
+        float width = 1;
+        bool overrideWidth = false;
+        float widthOffset = 0;
+        float Length() const { return overrideLength ? length : 1; }
+        float Width() const { return overrideWidth ? width : 1; }
+    };
+    struct NoteSettings {
+        float size = 1;
+        bool overrideSize = false;
+        bool defaultBombs = false;
+        bool defaultDebris = false;
+        float Size() const { return overrideSize ? size : 1; }
+    };
+    struct WallSettings {
+        bool disableFrame = false;
+        bool disableCore = false;
+    };
+    struct Profile {
+        std::string SaberModel = "";
+        std::string TrailModel = "";
+        std::string MenuSaberModel = "";
+        std::string MenuTrailModel = "";
+        std::string NoteModel = "";
+        std::string WallModel = "";
+        bool MenuSaber = false;
+        int TrailMode = 0;
+        int MenuTrailMode = 0;
+        CustomModels::SaberSettings SaberSettings{};
+        CustomModels::TrailSettings TrailSettings{};
+        CustomModels::SaberSettings MenuSaberSettings{};
+        CustomModels::TrailSettings MenuTrailSettings{};
+        CustomModels::NoteSettings NotesSettings{};
+        CustomModels::WallSettings WallsSettings{};
+    };
+}
+
+#define PROFILE_GETTER(name) auto& name() { return CurrentProfile().name; }
+
+DECLARE_CONFIG(Config) {
+    CONFIG_VALUE(Enabled, bool, "ModEnabled", true);
+    CONFIG_VALUE(Profile, std::string, "Profile", "Default");
+    CONFIG_VALUE(
+        Profiles,
+        ConfigUtils::Map<CustomModels::Profile>,
+        "Profiles",
+        ConfigUtils::Map<CustomModels::Profile>({{"Default", CustomModels::Profile{}}})
+    );
+
+    CustomModels::Profile& CurrentProfile() {
+        auto& profiles = Profiles.GetValue();
+        if (!profiles.contains(Profile.GetValue()))
+            Profile.SetValue(Profile.GetDefaultValue());
+        return profiles[Profile.GetValue()];
+    }
+
+    PROFILE_GETTER(SaberModel);
+    PROFILE_GETTER(TrailModel);
+    PROFILE_GETTER(MenuSaberModel);
+    PROFILE_GETTER(MenuTrailModel);
+    PROFILE_GETTER(NoteModel);
+    PROFILE_GETTER(WallModel);
+    PROFILE_GETTER(MenuSaber);
+    PROFILE_GETTER(TrailMode);
+    PROFILE_GETTER(MenuTrailMode);
+    PROFILE_GETTER(SaberSettings);
+    PROFILE_GETTER(TrailSettings);
+    PROFILE_GETTER(MenuSaberSettings);
+    PROFILE_GETTER(MenuTrailSettings);
+    PROFILE_GETTER(NotesSettings);
+    PROFILE_GETTER(WallsSettings);
+
+    CONFIG_VALUE(LoadingGuard, std::string, "LoadingGuard", "");
+    CONFIG_VALUE(LoadingFailures, std::vector<std::string>, "LoadingFailures", {});
+    CONFIG_VALUE(ModVersion, std::string, "ModVersion", VERSION);
+
+    bool LoadFailed(std::string const& file) {
+        auto fails = LoadingFailures.GetValue();
+        for (auto& fail : fails)
+            if (fail == file)
+                return true;
+        return false;
+    }
+};
+
+#undef PROFILE_GETTER
+''')
+
+
+# Hook 9 / CORDL 4503 API changes verified against the published Hook 9.4.3,
+# CORDL 4503 and BSML 0.6.7 headers.
+for root in ROOTS:
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".h", ".hpp", ".cpp"}:
+            continue
+        source = path.read_text()
+        updated = re.sub(r"\bgetDataDir\(", "get_data_dir(", source)
+        updated = updated.replace("il2cpp_utils::exceptions::StackTraceException", "i2c::trace_exception")
+        updated = updated.replace("i2c::exceptions::StackTraceException", "i2c::trace_exception")
+        updated = updated.replace("i2c::functions::Init()", "i2c::functions::initialize()")
+        if updated != source:
+            path.write_text(updated)
+
+loading_cpp = Path("src/loading.cpp")
+source = loading_cpp.read_text()
+source = source.replace('#include "loading.hpp"\n', '#include "loading.hpp"\n\n#include <algorithm>\n#include <set>\n#include "beatsaber-hook/shared/safeptr.hpp"\n#include "beatsaber-hook/shared/byref.hpp"\n')
+source = source.replace(
+    'auto array = ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()});',
+    'auto array = ArrayW<uint8_t>(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
+)
+source = source.replace('return request->isDone;', 'return request->get_isDone();')
+source = source.replace('i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\n    );', 'i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\n    ).value();')
+source = source.replace('asset = object->ptr();', 'asset = object;')
+loading_cpp.write_text(source)
+
+legacy_cpp = Path("src/legacy.cpp")
+source = legacy_cpp.read_text()
+source = source.replace('#include "legacy.hpp"\n', '#include "legacy.hpp"\n#include "beatsaber-hook/shared/exceptions.hpp"\n')
+legacy_cpp.write_text(source)
+
+material_cpp = Path("src/material.cpp")
+source = material_cpp.read_text()
+source = source.replace('#include "material.hpp"\n', '#include "material.hpp"\n#include "System/String.hpp"\n')
+material_cpp.write_text(source)
+
+hooks_cpp = Path("src/hooks.cpp")
+source = hooks_cpp.read_text()
+source = source.replace('#include "hooks.hpp"\n', '#include "hooks.hpp"\n\n#include "beatsaber-hook/shared/safeptr.hpp"\n')
+source = source.replace('ByRef<NoteSpawnData>', 'by_ref<NoteSpawnData const>')
+source = source.replace('ByRef<NoteDebris*>', 'by_ref<NoteDebris*>')
+source = source.replace('ByRef<BeatmapKey>', 'by_ref<BeatmapKey const>')
+source = source.replace('NoteData::GameplayType noteGameplayType', 'NoteData_GameplayType noteGameplayType')
+
+source = source.replace(
+    'BeatSaber::Settings::QualitySettings::ObstacleQuality obstacleQuality',
+    'BeatSaber::Settings::QualitySettings_ObstacleQuality obstacleQuality'
+)
+
+# GameplayCoreSceneSetupData::_ctor changed its argument list in CORDL 4503.
+# Match the generated 1.45.3 signature exactly, retaining the color/modifier capture.
+pattern = re.compile(
+    r"// get color scheme and modifiers\s*MAKE_AUTO_HOOK_MATCH\(\s*"
+    r"GameplayCoreSceneSetupData_ctor,.*?\n\}\n\n"
+    r"// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated\."
+    ,
+    re.S
+)
+replacement = r'''// get color scheme and modifiers
+MAKE_AUTO_HOOK_MATCH(
+    GameplayCoreSceneSetupData_ctor,
+    &GameplayCoreSceneSetupData::_ctor,
+    void,
+    GameplayCoreSceneSetupData* self,
+    by_ref<BeatmapKey const> beatmapKey,
+    BeatmapLevel* beatmapLevel,
+    GameplayModifiers* modifiers,
+    PlayerSpecificSettings* playerSpecificSettings,
+    PracticeSettings* practiceSettings,
+    EnvironmentInfoSO* targetEnvironmentInfo,
+    EnvironmentInfoSO* originalEnvironmentInfo,
+    ColorScheme* colorScheme,
+    SettingsManager* settingsManager,
+    AudioClipAsyncLoader* audioClipAsyncLoader,
+    BeatmapDataLoader* beatmapDataLoader,
+    BeatmapLevelsEntitlementModel* beatmapLevelsEntitlementModel,
+    bool enableBeatmapDataCaching,
+    EnvironmentsListModel* environmentsListModel,
+    bool allowNullBeatmapLevelData,
+    BeatmapLevelsModel* beatmapLevelsModel,
+    IBeatmapLevelData* beatmapLevelData
+) {
+    GameplayCoreSceneSetupData_ctor(
+        self, beatmapKey, beatmapLevel, modifiers, playerSpecificSettings, practiceSettings, targetEnvironmentInfo,
+        originalEnvironmentInfo, colorScheme, settingsManager, audioClipAsyncLoader, beatmapDataLoader,
+        beatmapLevelsEntitlementModel, enableBeatmapDataCaching, environmentsListModel, allowNullBeatmapLevelData,
+        beatmapLevelsModel, beatmapLevelData
+    );
+    CustomModels::colorScheme = colorScheme;
+    CustomModels::modifiers = modifiers;
+}
+
+// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated.'''
+source, count = pattern.subn(replacement, source)
+if count != 1:
+    raise SystemExit(f"Expected one GameplayCoreSceneSetupData hook to migrate, found {count}")
+
+source, removed = re.subn(
+    r"// don't run the base class Awake on our saber trail\s*MAKE_AUTO_HOOK_MATCH\(SaberTrail_Awake,.*?\n\}\n\n",
+    "",
+    source,
+    flags=re.S
+)
+if removed != 1:
+    raise SystemExit(f"Expected to remove one obsolete SaberTrail::Awake hook, removed {removed}")
+source = source.replace('if (!(*custom)->PreLateUpdate())', 'if (!custom->PreLateUpdate())')
+source = source.replace(
+    'if (auto custom = i2c::try_cast<CustomModels::CustomSaberTrail>(self)) {',
+    'if (auto custom = safe_ptr<SaberTrail*>(self).try_cast<CustomModels::CustomSaberTrail*>()) {'
+)
+source = source.replace(
+    'if (auto note = i2c::try_cast<GameNoteController>(self).value_or(nullptr)) {',
+    'if (auto note = safe_ptr<NoteController*>(self).try_cast<GameNoteController*>()) {'
+)
+source = source.replace(
+    '} else if (auto bomb = i2c::try_cast<BombNoteController>(self).value_or(nullptr))',
+    '} else if (auto bomb = safe_ptr<NoteController*>(self).try_cast<BombNoteController*>())'
+)
+hooks_cpp.write_text(source)
+
+# Profiles is a ConfigUtils::Value<Map> under config-utils 3; callers must access its map.
+settings_cpp = Path("src/settings.cpp")
+source = settings_cpp.read_text()
+source = source.replace("auto& profiles = getConfig().Profiles;", "auto& profiles = getConfig().Profiles.GetValue();")
+settings_cpp.write_text(source)
+
+
+# MetaCore 2 moved the Beat Saber input API into MetaCoreBS.
+pointers_cpp = Path("src/pointers.cpp")
+source = pointers_cpp.read_text()
+source = source.replace('"metacore/shared/input.hpp"', '"metacore-bs/shared/input.hpp"')
+pointers_cpp.write_text(source)
+
+# CORDL's Array<T> no longer exposes the MetaCore LINQ FirstOrDefault helper.
+# Preserve the original first-match semantics with the ArrayW iterator API.
+material_cpp = Path("src/material.cpp")
+source = material_cpp.read_text()
+old = """UnityEngine::Material* ret = allMaterials->FirstOrDefault([&name](UnityEngine::Material* material) {
+        return material->name->Length > 0 && !material->name->Contains("_replace") &&
+               name.find((std::string) material->name->ToLower()) != std::string::npos;
+    });"""
+new = """UnityEngine::Material* ret = nullptr;
+    for (auto* material : allMaterials) {
+        if (!material || !material->name || material->name->Length <= 0 || material->name->Contains("_replace"))
+            continue;
+        if (name.find((std::string) material->name->ToLower()) != std::string::npos) {
+            ret = material;
+            break;
+        }
+    }"""
+if source.count(old) != 1:
+    raise SystemExit(f"src/material.cpp: expected one FirstOrDefault block, found {source.count(old)}")
+source = source.replace(old, new)
+material_cpp.write_text(source)
+
+# Note visual code also dereferences System::String members directly.
+note_cpp = Path("src/note.cpp")
+source = note_cpp.read_text()
+source = source.replace('#include "note.hpp"\n', '#include "note.hpp"\n#include "System/String.hpp"\n')
+note_cpp.write_text(source)
+
+
+# Hook 9 / CORDL 4503: Array<T> no longer has MetaCore's FirstOrDefault extension.
+# Preserve first-match behavior using ArrayW's begin/end iterators.
+saber_cpp = Path("src/saber.cpp")
+source = saber_cpp.read_text()
+source, count = re.subn(
+    r"(?m)^(\s*)if \(auto child = trails->FirstOrDefault\(\[id = trail\.info\.trailId\]\(auto trail\) \{ return trail->trailId == id; \}\)\)$",
+    r"\1CustomSaberTrail* child = nullptr;\n\1for (auto* candidate : trails)\n\1    if (candidate && candidate->trailId == trail.info.trailId) { child = candidate; break; }\n\1if (child)",
+    source
+)
+if count != 2:
+    raise SystemExit(f"src/saber.cpp: expected two FirstOrDefault loops, migrated {count}")
+saber_cpp.write_text(source)
+
+# CORDL 4503 ArrayW must be allocated by size and populated; the old pointer/size
+# brace pair was not a supported constructor.
+selection_cpp = Path("src/selection.cpp")
+source = selection_cpp.read_text()
+source = source.replace('#include "selection.hpp"\n', '#include "selection.hpp"\n#include <algorithm>\n')
+old = 'auto sprite = BSML::Utilities::LoadSpriteRaw(ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()}));'
+new = 'ArrayW<uint8_t> imageBytes(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), imageBytes.begin());\n    auto sprite = BSML::Utilities::LoadSpriteRaw(imageBytes);'
+if source.count(old) != 1:
+    raise SystemExit(f"src/selection.cpp: expected one obsolete ArrayW constructor, found {source.count(old)}")
+source = source.replace(old, new)
+selection_cpp.write_text(source)
+
+# TableView.IDataSource is an abstract interface in CORDL 4503. Hook 9 cannot
+# derive metadata from a pointer-to-abstract-method; resolve its MethodInfo by
+# declaring type/name/arity and pass that to CustomTypes' override macro.
+settings_hpp = Path("include/settings.hpp")
+source = settings_hpp.read_text()
+source = source.replace('#include "HMUI/TextSegmentedControl.hpp"\n', '#include "HMUI/TextSegmentedControl.hpp"\n#include "HMUI/TableView.hpp"\n#include <utility>\n#include "beatsaber-hook/shared/find.hpp"\n')
+helper = """namespace CustomModels {
+using SelectionCellReturn = decltype(std::declval<HMUI::TableView::IDataSource*>()->CellForIdx(std::declval<HMUI::TableView*>(), int32_t{}));
+inline MethodInfo const* SelectionCellSizeMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1});
+}
+inline MethodInfo const* SelectionNumberOfCellsMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"NumberOfCells", 0});
+}
+inline MethodInfo const* SelectionCellForIdxMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellForIdx", 2});
+}
+}
+
+"""
+if "SelectionCellSizeMethod" not in source:
+    source = source.replace("DECLARE_CLASS_CODEGEN(CustomModels, SettingsCoordinator", helper + "DECLARE_CLASS_CODEGEN(CustomModels, SettingsCoordinator")
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize, &HMUI::TableView::IDataSource::CellSize);',
+    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::CustomModels::SelectionCellSizeMethod(), int32_t idx);'
+)
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(int, NumberOfCells, &HMUI::TableView::IDataSource::NumberOfCells);',
+    'DECLARE_OVERRIDE_METHOD(int32_t, NumberOfCells, ::CustomModels::SelectionNumberOfCellsMethod());'
+)
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(HMUI::TableCell*, CellForIdx, &HMUI::TableView::IDataSource::CellForIdx, HMUI::TableView*, int idx);',
+    'DECLARE_OVERRIDE_METHOD(::CustomModels::SelectionCellReturn, CellForIdx, ::CustomModels::SelectionCellForIdxMethod(), HMUI::TableView* tableView, int32_t idx);'
+)
+if "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize" in source or "DECLARE_OVERRIDE_METHOD_MATCH(int, NumberOfCells" in source:
+    raise SystemExit("include/settings.hpp: abstract IDataSource methods were not migrated")
+settings_hpp.write_text(source)
+
+settings_cpp = Path("src/settings.cpp")
+source = settings_cpp.read_text()
+source = source.replace('float SelectionSettings::CellSize() {', 'float SelectionSettings::CellSize(int32_t) {')
+source = source.replace('int SelectionSettings::NumberOfCells() {', 'int32_t SelectionSettings::NumberOfCells() {')
+source = source.replace('HMUI::TableCell* SelectionSettings::CellForIdx(HMUI::TableView*, int idx) {',
+                        'SelectionCellReturn SelectionSettings::CellForIdx(HMUI::TableView*, int32_t idx) {')
+settings_cpp.write_text(source)
+
+
+# Hook 9 / CORDL 4503 renamed the UnityW raw-pointer accessor and the old
+# Beat Saber TimeHelper static shim is absent; use the generated Unity API.
+trail_cpp = Path("src/trail.cpp")
+source = trail_cpp.read_text()
+source = source.replace(".unsafePtr()", ".unsafe_ptr()")
+source = source.replace('#include "GlobalNamespace/TimeHelper.hpp"\n', '#include "UnityEngine/Time.hpp"\n')
+source = source.replace("GlobalNamespace::TimeHelper::get_time()", "UnityEngine::Time::get_time()")
+trail_cpp.write_text(source)
+
+# The old nested Hook utility header was removed in Hook 9. The supported
+# shared/utils.hpp provides fileexists/writefile used by this translation unit.
+zip_cpp = Path("src/zip.cpp")
+source = zip_cpp.read_text()
+source = source.replace('"beatsaber-hook/shared/utils/utils.h"', '"beatsaber-hook/shared/utils.hpp"')
+zip_cpp.write_text(source)
+
+# Fail closed if any known incompatible API references remain.
+all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
+for stale in (
+    "beatsaber-hook/shared/config/config-utils.hpp",
+    "beatsaber-hook/shared/utils/hooking.hpp",
+    "metacore/shared/game.hpp",
+    "metacore/shared/internals.hpp",
+    "metacore/shared/ui.hpp",
+    "TutorialScenesTransitionSetupDataSO",
+    "il2cpp_utils::",
+    "il2cpp_functions::",
+    "SafePtr",
+    "getDataDir(",
+    "ByRef<",
+    "SaberTrail_Awake",
+    "i2c::try_cast",
+    "FirstOrDefault",
+    "unsafePtr()",
+    "TimeHelper::get_time()",
+    "beatsaber-hook/shared/utils/utils.h",
+    "ArrayW<uint8_t>({",
+    "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize",
+):
+    if stale in all_cpp:
+        raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
+
+print("Ported CustomModels source: Hook 9 API, MetaCoreBS split, RapidjsonMacros 3, config-utils 3.")
