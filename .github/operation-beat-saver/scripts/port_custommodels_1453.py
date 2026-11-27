@@ -215,7 +215,7 @@ if json_data.count('#include "config-utils/shared/config-utils.hpp"') != 1:
 if '#include "rapidjson-macros/shared/macros.hpp"' not in json_data:
     json_data = json_data.replace(
         '#include "config-utils/shared/config-utils.hpp"',
-        '#include "config-utils/shared/config-utils.hpp"\\n#include "rapidjson-macros/shared/macros.hpp"\\n#include "UnityEngine/Color.hpp"',
+        '#include "config-utils/shared/config-utils.hpp"\n#include "rapidjson-macros/shared/macros.hpp"\n#include "UnityEngine/Color.hpp"',
         1,
     )
 color_marker = "namespace CustomModels {"
@@ -243,7 +243,7 @@ color_bridge = r'''namespace ConfigUtils {
 }
 
 '''
-if "namespace ConfigUtils {\\n    DECLARE_JSON_STRUCT(Color)" not in json_data:
+if "namespace ConfigUtils {\n    DECLARE_JSON_STRUCT(Color)" not in json_data:
     if json_data.count(color_marker) != 1:
         raise SystemExit("json.hpp namespace marker changed; refusing Color bridge insertion")
     json_data = json_data.replace(color_marker, color_bridge + color_marker, 1)
