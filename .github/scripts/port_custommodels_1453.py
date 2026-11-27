@@ -232,61 +232,56 @@ namespace CustomModels {
 Path("include/config.hpp").write_text(r'''#pragma once
 
 #include "config-utils/shared/config-utils.hpp"
-#include "json.hpp"
 
 namespace CustomModels {
-    DECLARE_JSON_STRUCT(SaberSettings) {
-        VALUE_DEFAULT(float, length, 1);
-        VALUE_DEFAULT(bool, overrideLength, false);
-        VALUE_DEFAULT(float, width, 1);
-        VALUE_DEFAULT(bool, overrideWidth, false);
-
-        float Length() { return overrideLength ? length : 1; }
-        float Width() { return overrideWidth ? width : 1; }
+    // config-utils 3 uses reflect-cpp, which needs plain aggregate structs.
+    // RapidJSON-generated structs inherit a data-bearing base and are not valid
+    // reflect-cpp models; keep manifest serialization separate in json.hpp.
+    struct SaberSettings {
+        float length = 1;
+        bool overrideLength = false;
+        float width = 1;
+        bool overrideWidth = false;
+        float Length() const { return overrideLength ? length : 1; }
+        float Width() const { return overrideWidth ? width : 1; }
     };
-
-    DECLARE_JSON_STRUCT(TrailSettings) {
-        VALUE_DEFAULT(bool, whiteStep, false);
-        VALUE_DEFAULT(float, length, 1);
-        VALUE_DEFAULT(bool, overrideLength, false);
-        VALUE_DEFAULT(float, width, 1);
-        VALUE_DEFAULT(bool, overrideWidth, false);
-        VALUE_DEFAULT(float, widthOffset, 0);
-
-        float Length() { return overrideLength ? length : 1; }
-        float Width() { return overrideWidth ? width : 1; }
+    struct TrailSettings {
+        bool whiteStep = false;
+        float length = 1;
+        bool overrideLength = false;
+        float width = 1;
+        bool overrideWidth = false;
+        float widthOffset = 0;
+        float Length() const { return overrideLength ? length : 1; }
+        float Width() const { return overrideWidth ? width : 1; }
     };
-
-    DECLARE_JSON_STRUCT(NoteSettings) {
-        VALUE_DEFAULT(float, size, 1);
-        VALUE_DEFAULT(bool, overrideSize, false);
-        VALUE_DEFAULT(bool, defaultBombs, false);
-        VALUE_DEFAULT(bool, defaultDebris, false);
-
-        float Size() { return overrideSize ? size : 1; }
+    struct NoteSettings {
+        float size = 1;
+        bool overrideSize = false;
+        bool defaultBombs = false;
+        bool defaultDebris = false;
+        float Size() const { return overrideSize ? size : 1; }
     };
-
-    DECLARE_JSON_STRUCT(WallSettings) {
-        VALUE_DEFAULT(bool, disableFrame, false);
-        VALUE_DEFAULT(bool, disableCore, false);
+    struct WallSettings {
+        bool disableFrame = false;
+        bool disableCore = false;
     };
-
-    DECLARE_JSON_STRUCT(Profile) {
-        VALUE_DEFAULT(std::string, SaberModel, "");
-        VALUE_DEFAULT(std::string, TrailModel, "");
-        VALUE_DEFAULT(std::string, MenuSaberModel, "");
-        VALUE_DEFAULT(std::string, MenuTrailModel, "");
-        VALUE_DEFAULT(std::string, NoteModel, "");
-        VALUE_DEFAULT(std::string, WallModel, "");
-        VALUE_DEFAULT(bool, MenuSaber, false);
-        VALUE_DEFAULT(int, TrailMode, 0);
-        VALUE_DEFAULT(int, MenuTrailMode, 0);
-        VALUE_DEFAULT(CustomModels::SaberSettings, SaberSettings, {});
-        VALUE_DEFAULT(CustomModels::TrailSettings, TrailSettings, {});
-        VALUE_DEFAULT(CustomModels::SaberSettings, MenuSaberSettings, {});
-        VALUE_DEFAULT(CustomModels::TrailSettings, MenuTrailSettings, {});
-        VALUE_DEFAULT(CustomModels::NoteSettings, NotesSettings, {});
-        VALUE_DEFAULT(CustomModels::WallSettings, WallsSettings, {});
+    struct Profile {
+        std::string SaberModel = "";
+        std::string TrailModel = "";
+        std::string MenuSaberModel = "";
+        std::string MenuTrailModel = "";
+        std::string NoteModel = "";
+        std::string WallModel = "";
+        bool MenuSaber = false;
+        int TrailMode = 0;
+        int MenuTrailMode = 0;
+        SaberSettings SaberSettings{};
+        TrailSettings TrailSettings{};
+        SaberSettings MenuSaberSettings{};
+        TrailSettings MenuTrailSettings{};
+        NoteSettings NotesSettings{};
+        WallSettings WallsSettings{};
     };
 }
 
@@ -295,12 +290,18 @@ namespace CustomModels {
 DECLARE_CONFIG(Config) {
     CONFIG_VALUE(Enabled, bool, "ModEnabled", true);
     CONFIG_VALUE(Profile, std::string, "Profile", "Default");
-    MAP_DEFAULT(CustomModels::Profile, Profiles, StringKeyedMap<CustomModels::Profile>({{"Default", {}}}));
+    CONFIG_VALUE(
+        Profiles,
+        ConfigUtils::Map<CustomModels::Profile>,
+        "Profiles",
+        ConfigUtils::Map<CustomModels::Profile>({{"Default", CustomModels::Profile{}}})
+    );
 
     CustomModels::Profile& CurrentProfile() {
-        if (!Profiles.contains(Profile.GetValue()))
+        auto& profiles = Profiles.GetValue();
+        if (!profiles.contains(Profile.GetValue()))
             Profile.SetValue(Profile.GetDefaultValue());
-        return Profiles[Profile.GetValue()];
+        return profiles[Profile.GetValue()];
     }
 
     PROFILE_GETTER(SaberModel);
@@ -335,6 +336,60 @@ DECLARE_CONFIG(Config) {
 #undef PROFILE_GETTER
 ''')
 
+
+# Hook 9 / CORDL 4503 API changes verified against the published Hook 9.4.3,
+# CORDL 4503 and BSML 0.6.7 headers.
+for root in ROOTS:
+    for path in root.rglob("*"):
+        if not path.is_file() or path.suffix not in {".h", ".hpp", ".cpp"}:
+            continue
+        source = path.read_text()
+        updated = re.sub(r"\\bgetDataDir\\(", "get_data_dir(", source)
+        updated = updated.replace("il2cpp_utils::exceptions::StackTraceException", "i2c::trace_exception")
+        updated = updated.replace("i2c::functions::Init()", "i2c::functions::initialize()")
+        if updated != source:
+            path.write_text(updated)
+
+loading_cpp = Path("src/loading.cpp")
+source = loading_cpp.read_text()
+source = source.replace('#include "loading.hpp"\\n', '#include "loading.hpp"\\n\\n#include <algorithm>\\n#include <set>\\n#include "beatsaber-hook/shared/safeptr.hpp"\\n')
+source = source.replace(
+    'auto array = ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()});',
+    'auto array = ArrayW<uint8_t>(bytes.size());\\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
+)
+source = source.replace('return request->isDone;', 'return request->get_isDone();')
+source = source.replace('asset = object->ptr();', 'asset = object;')
+loading_cpp.write_text(source)
+
+hooks_cpp = Path("src/hooks.cpp")
+source = hooks_cpp.read_text()
+source = source.replace('#include "hooks.hpp"\\n', '#include "hooks.hpp"\\n\\n#include "beatsaber-hook/shared/safeptr.hpp"\\n')
+source = source.replace('ByRef<NoteSpawnData>', 'by_ref<NoteSpawnData const>')
+source = source.replace('ByRef<NoteDebris*>', 'by_ref<NoteDebris*>')
+source = source.replace('ByRef<BeatmapKey>', 'by_ref<BeatmapKey const>')
+source = source.replace('NoteData::GameplayType noteGameplayType', 'NoteData_GameplayType noteGameplayType')
+source, removed = re.subn(
+    r"// don't run the base class Awake on our saber trail\\s*MAKE_AUTO_HOOK_MATCH\\(SaberTrail_Awake,.*?\\n\\}\\n\\n",
+    "",
+    source,
+    flags=re.S
+)
+if removed != 1:
+    raise SystemExit(f"Expected to remove one obsolete SaberTrail::Awake hook, removed {removed}")
+source = source.replace(
+    'if (auto custom = i2c::try_cast<CustomModels::CustomSaberTrail>(self)) {',
+    'if (auto custom = safe_ptr<SaberTrail*>(self).try_cast<CustomModels::CustomSaberTrail*>()) {'
+)
+source = source.replace(
+    'if (auto note = i2c::try_cast<GameNoteController>(self).value_or(nullptr)) {',
+    'if (auto note = safe_ptr<NoteController*>(self).try_cast<GameNoteController*>()) {'
+)
+source = source.replace(
+    '} else if (auto bomb = i2c::try_cast<BombNoteController>(self).value_or(nullptr))',
+    '} else if (auto bomb = safe_ptr<NoteController*>(self).try_cast<BombNoteController*>())'
+)
+hooks_cpp.write_text(source)
+
 # Fail closed if any known incompatible API references remain.
 all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
 for stale in (
@@ -346,7 +401,7 @@ for stale in (
     "TutorialScenesTransitionSetupDataSO",
     "il2cpp_utils::",
     "il2cpp_functions::",
-    "SafePtr",
+    "SafePtr",\n    "getDataDir(",\n    "ByRef<",\n    "SaberTrail_Awake",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
