@@ -449,7 +449,7 @@ add_include("src/note.cpp", '#include "note.hpp"', '#include "System/String.hpp"
 replace_once(
     "src/pointers.cpp",
     '#include "metacore/shared/input.hpp"',
-    '#include "metacorebs/shared/input.hpp"',
+    '#include "metacore-bs/shared/input.hpp"',
 )
 add_include(
     "src/hooks.cpp",
