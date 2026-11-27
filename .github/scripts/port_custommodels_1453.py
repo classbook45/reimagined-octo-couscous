@@ -378,9 +378,9 @@ source = source.replace(
 # GameplayCoreSceneSetupData::_ctor changed its argument list in CORDL 4503.
 # Match the generated 1.45.3 signature exactly, retaining the color/modifier capture.
 pattern = re.compile(
-    r"// get color scheme and modifiers\\s*MAKE_AUTO_HOOK_MATCH\\(\\s*"
-    r"GameplayCoreSceneSetupData_ctor,.*?\\n\\}\\n\\n"
-    r"// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated\\."
+    r"// get color scheme and modifiers\s*MAKE_AUTO_HOOK_MATCH\(\s*"
+    r"GameplayCoreSceneSetupData_ctor,.*?\n\}\n\n"
+    r"// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated\."
     ,
     re.S
 )
