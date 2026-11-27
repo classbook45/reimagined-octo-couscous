@@ -459,7 +459,9 @@ for stale in (
     "SafePtr",
     "getDataDir(",
     "ByRef<",
-    "SaberTrail_Awake",\n    "i2c::try_cast",\n    "i2c::resolve_icall",
+    "SaberTrail_Awake",
+    "i2c::try_cast",
+    "i2c::resolve_icall",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
