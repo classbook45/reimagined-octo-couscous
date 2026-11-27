@@ -67,6 +67,18 @@ jobs:
           distribution: temurin
           java-version: "17"
 
+      - uses: android-actions/setup-android@v3
+        with:
+          packages: platform-tools
+
+      - name: Install pinned Android NDK 29
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "00-install-pinned-android-ndk" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/00-install-pinned-android-ndk.sh"
+
+      - name: Install QPM CLI
+        run: |
+          python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "00b-install-qpm-cli" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/00b-install-qpm-cli.sh"
+
       - name: Prepare CustomModels-only build directories
         run: |
           python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "01-prepare-custommodels-only-build-directories" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/01-prepare-custommodels-only-build-directories.sh"
