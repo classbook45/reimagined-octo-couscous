@@ -505,8 +505,8 @@ note_cpp.write_text(source)
 saber_cpp = Path("src/saber.cpp")
 source = saber_cpp.read_text()
 source, count = re.subn(
-    r"(?m)^(\\s*)if \\(auto child = trails->FirstOrDefault\\(\\[id = trail\\.info\\.trailId\\]\\(auto trail\\) \\{ return trail->trailId == id; \\}\\)\\)$",
-    r"\\1CustomSaberTrail* child = nullptr;\\n\\1for (auto* candidate : trails)\\n\\1    if (candidate && candidate->trailId == trail.info.trailId) { child = candidate; break; }\\n\\1if (child)",
+    r"(?m)^(\s*)if \(auto child = trails->FirstOrDefault\(\[id = trail\.info\.trailId\]\(auto trail\) \{ return trail->trailId == id; \}\)\)$",
+    r"\1CustomSaberTrail* child = nullptr;\n\1for (auto* candidate : trails)\n\1    if (candidate && candidate->trailId == trail.info.trailId) { child = candidate; break; }\n\1if (child)",
     source
 )
 if count != 2:
@@ -517,9 +517,9 @@ saber_cpp.write_text(source)
 # brace pair was not a supported constructor.
 selection_cpp = Path("src/selection.cpp")
 source = selection_cpp.read_text()
-source = source.replace('#include "selection.hpp"\\n', '#include "selection.hpp"\\n#include <algorithm>\\n')
+source = source.replace('#include "selection.hpp"\n', '#include "selection.hpp"\n#include <algorithm>\n')
 old = 'auto sprite = BSML::Utilities::LoadSpriteRaw(ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()}));'
-new = 'ArrayW<uint8_t> imageBytes(bytes.size());\\n    std::copy(bytes.begin(), bytes.end(), imageBytes.begin());\\n    auto sprite = BSML::Utilities::LoadSpriteRaw(imageBytes);'
+new = 'ArrayW<uint8_t> imageBytes(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), imageBytes.begin());\n    auto sprite = BSML::Utilities::LoadSpriteRaw(imageBytes);'
 if source.count(old) != 1:
     raise SystemExit(f"src/selection.cpp: expected one obsolete ArrayW constructor, found {source.count(old)}")
 source = source.replace(old, new)
@@ -530,7 +530,7 @@ selection_cpp.write_text(source)
 # declaring type/name/arity and pass that to CustomTypes' override macro.
 settings_hpp = Path("include/settings.hpp")
 source = settings_hpp.read_text()
-source = source.replace('#include "HMUI/TextSegmentedControl.hpp"\\n', '#include "HMUI/TextSegmentedControl.hpp"\\n#include "HMUI/TableView.hpp"\\n#include <utility>\\n#include "beatsaber-hook/shared/find.hpp"\\n')
+source = source.replace('#include "HMUI/TextSegmentedControl.hpp"\n', '#include "HMUI/TextSegmentedControl.hpp"\n#include "HMUI/TableView.hpp"\n#include <utility>\n#include "beatsaber-hook/shared/find.hpp"\n')
 helper = """namespace CustomModels {
 using SelectionCellReturn = decltype(std::declval<HMUI::TableView::IDataSource*>()->CellForIdx(std::declval<HMUI::TableView*>(), int32_t{}));
 inline MethodInfo const* SelectionCellSizeMethod() {
