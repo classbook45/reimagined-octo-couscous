@@ -114,10 +114,6 @@ jobs:
         working-directory: CustomModels
         run: |
           python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "09-migrate-hook-9-header-locations-used-by-custommodels" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/09-migrate-hook-9-header-locations-used-by-custommodels.sh"
-      - name: Port CustomModels source APIs to Beat Saber 1.45.3
-        working-directory: CustomModels
-        run: |
-          python3 "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/autofix_stage.py" --stage "10-port-custommodels-source-apis-to-beat-saber-1-45-3" --script "$GITHUB_WORKSPACE/.github/operation-beat-saver/scripts/stages/10-port-custommodels-source-apis-to-beat-saber-1-45-3.sh"
       - name: Link reflect-cpp and include Cordl IList implementation
         working-directory: CustomModels
         run: |
