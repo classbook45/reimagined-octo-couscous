@@ -16,7 +16,7 @@ on:
         required: false
         default: "^9.3.0"
   push:
-    branches: [main]
+    branches: [main, custommodels-1453-full-port]
     paths:
       - '.github/workflows/vr-beat-saver.yml'
       - '.github/operation-beat-saver/patches/**'
