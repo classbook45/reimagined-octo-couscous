@@ -464,6 +464,41 @@ source = settings_cpp.read_text()
 source = source.replace("auto& profiles = getConfig().Profiles;", "auto& profiles = getConfig().Profiles.GetValue();")
 settings_cpp.write_text(source)
 
+
+# MetaCore 2 moved the Beat Saber input API into MetaCoreBS.
+pointers_cpp = Path("src/pointers.cpp")
+source = pointers_cpp.read_text()
+source = source.replace('"metacore/shared/input.hpp"', '"metacore-bs/shared/input.hpp"')
+pointers_cpp.write_text(source)
+
+# CORDL's Array<T> no longer exposes the MetaCore LINQ FirstOrDefault helper.
+# Preserve the original first-match semantics with the ArrayW iterator API.
+material_cpp = Path("src/material.cpp")
+source = material_cpp.read_text()
+old = """UnityEngine::Material* ret = allMaterials->FirstOrDefault([&name](UnityEngine::Material* material) {
+        return material->name->Length > 0 && !material->name->Contains("_replace") &&
+               name.find((std::string) material->name->ToLower()) != std::string::npos;
+    });"""
+new = """UnityEngine::Material* ret = nullptr;
+    for (auto* material : allMaterials) {
+        if (!material || !material->name || material->name->Length <= 0 || material->name->Contains("_replace"))
+            continue;
+        if (name.find((std::string) material->name->ToLower()) != std::string::npos) {
+            ret = material;
+            break;
+        }
+    }"""
+if source.count(old) != 1:
+    raise SystemExit(f"src/material.cpp: expected one FirstOrDefault block, found {source.count(old)}")
+source = source.replace(old, new)
+material_cpp.write_text(source)
+
+# Note visual code also dereferences System::String members directly.
+note_cpp = Path("src/note.cpp")
+source = note_cpp.read_text()
+source = source.replace('#include "note.hpp"\n', '#include "note.hpp"\n#include "System/String.hpp"\n')
+note_cpp.write_text(source)
+
 # Fail closed if any known incompatible API references remain.
 all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
 for stale in (
