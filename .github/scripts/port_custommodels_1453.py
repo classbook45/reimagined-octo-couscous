@@ -369,6 +369,60 @@ source = source.replace('ByRef<NoteSpawnData>', 'by_ref<NoteSpawnData const>')
 source = source.replace('ByRef<NoteDebris*>', 'by_ref<NoteDebris*>')
 source = source.replace('ByRef<BeatmapKey>', 'by_ref<BeatmapKey const>')
 source = source.replace('NoteData::GameplayType noteGameplayType', 'NoteData_GameplayType noteGameplayType')
+
+source = source.replace(
+    'BeatSaber::Settings::QualitySettings::ObstacleQuality obstacleQuality',
+    'BeatSaber::Settings::QualitySettings_ObstacleQuality obstacleQuality'
+)
+
+# GameplayCoreSceneSetupData::_ctor changed its argument list in CORDL 4503.
+# Match the generated 1.45.3 signature exactly, retaining the color/modifier capture.
+pattern = re.compile(
+    r"// get color scheme and modifiers\\s*MAKE_AUTO_HOOK_MATCH\\(\\s*"
+    r"GameplayCoreSceneSetupData_ctor,.*?\\n\\}\\n\\n"
+    r"// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated\\."
+    ,
+    re.S
+)
+replacement = r'''// get color scheme and modifiers
+MAKE_AUTO_HOOK_MATCH(
+    GameplayCoreSceneSetupData_ctor,
+    &GameplayCoreSceneSetupData::_ctor,
+    void,
+    GameplayCoreSceneSetupData* self,
+    by_ref<BeatmapKey const> beatmapKey,
+    BeatmapLevel* beatmapLevel,
+    GameplayModifiers* modifiers,
+    PlayerSpecificSettings* playerSpecificSettings,
+    PracticeSettings* practiceSettings,
+    EnvironmentInfoSO* targetEnvironmentInfo,
+    EnvironmentInfoSO* originalEnvironmentInfo,
+    ColorScheme* colorScheme,
+    SettingsManager* settingsManager,
+    AudioClipAsyncLoader* audioClipAsyncLoader,
+    BeatmapDataLoader* beatmapDataLoader,
+    BeatmapLevelsEntitlementModel* beatmapLevelsEntitlementModel,
+    bool enableBeatmapDataCaching,
+    EnvironmentsListModel* environmentsListModel,
+    bool allowNullBeatmapLevelData,
+    BeatmapLevelsModel* beatmapLevelsModel,
+    IBeatmapLevelData* beatmapLevelData
+) {
+    GameplayCoreSceneSetupData_ctor(
+        self, beatmapKey, beatmapLevel, modifiers, playerSpecificSettings, practiceSettings, targetEnvironmentInfo,
+        originalEnvironmentInfo, colorScheme, settingsManager, audioClipAsyncLoader, beatmapDataLoader,
+        beatmapLevelsEntitlementModel, enableBeatmapDataCaching, environmentsListModel, allowNullBeatmapLevelData,
+        beatmapLevelsModel, beatmapLevelData
+    );
+    CustomModels::colorScheme = colorScheme;
+    CustomModels::modifiers = modifiers;
+}
+
+// Tutorial scene color state is provided by MetaCoreBS on 1.45.3; the old transition hook type is not generated.'''
+source, count = pattern.subn(replacement, source)
+if count != 1:
+    raise SystemExit(f"Expected one GameplayCoreSceneSetupData hook to migrate, found {count}")
+
 source, removed = re.subn(
     r"// don't run the base class Awake on our saber trail\s*MAKE_AUTO_HOOK_MATCH\(SaberTrail_Awake,.*?\n\}\n\n",
     "",
