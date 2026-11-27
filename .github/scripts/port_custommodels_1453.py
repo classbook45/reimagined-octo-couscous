@@ -344,7 +344,7 @@ for root in ROOTS:
         if not path.is_file() or path.suffix not in {".h", ".hpp", ".cpp"}:
             continue
         source = path.read_text()
-        updated = re.sub(r"\\bgetDataDir\\(", "get_data_dir(", source)
+        updated = re.sub(r"\bgetDataDir\(", "get_data_dir(", source)
         updated = updated.replace("il2cpp_utils::exceptions::StackTraceException", "i2c::trace_exception")
         updated = updated.replace("i2c::functions::Init()", "i2c::functions::initialize()")
         if updated != source:
@@ -352,10 +352,10 @@ for root in ROOTS:
 
 loading_cpp = Path("src/loading.cpp")
 source = loading_cpp.read_text()
-source = source.replace('#include "loading.hpp"\\n', '#include "loading.hpp"\\n\\n#include <algorithm>\\n#include <set>\\n#include "beatsaber-hook/shared/safeptr.hpp"\\n')
+source = source.replace('#include "loading.hpp"\n', '#include "loading.hpp"\n\n#include <algorithm>\n#include <set>\n#include "beatsaber-hook/shared/safeptr.hpp"\n')
 source = source.replace(
     'auto array = ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()});',
-    'auto array = ArrayW<uint8_t>(bytes.size());\\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
+    'auto array = ArrayW<uint8_t>(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
 )
 source = source.replace('return request->isDone;', 'return request->get_isDone();')
 source = source.replace('asset = object->ptr();', 'asset = object;')
@@ -363,13 +363,13 @@ loading_cpp.write_text(source)
 
 hooks_cpp = Path("src/hooks.cpp")
 source = hooks_cpp.read_text()
-source = source.replace('#include "hooks.hpp"\\n', '#include "hooks.hpp"\\n\\n#include "beatsaber-hook/shared/safeptr.hpp"\\n')
+source = source.replace('#include "hooks.hpp"\n', '#include "hooks.hpp"\n\n#include "beatsaber-hook/shared/safeptr.hpp"\n')
 source = source.replace('ByRef<NoteSpawnData>', 'by_ref<NoteSpawnData const>')
 source = source.replace('ByRef<NoteDebris*>', 'by_ref<NoteDebris*>')
 source = source.replace('ByRef<BeatmapKey>', 'by_ref<BeatmapKey const>')
 source = source.replace('NoteData::GameplayType noteGameplayType', 'NoteData_GameplayType noteGameplayType')
 source, removed = re.subn(
-    r"// don't run the base class Awake on our saber trail\\s*MAKE_AUTO_HOOK_MATCH\\(SaberTrail_Awake,.*?\\n\\}\\n\\n",
+    r"// don't run the base class Awake on our saber trail\s*MAKE_AUTO_HOOK_MATCH\(SaberTrail_Awake,.*?\n\}\n\n",
     "",
     source,
     flags=re.S
@@ -401,7 +401,10 @@ for stale in (
     "TutorialScenesTransitionSetupDataSO",
     "il2cpp_utils::",
     "il2cpp_functions::",
-    "SafePtr",\n    "getDataDir(",\n    "ByRef<",\n    "SaberTrail_Awake",
+    "SafePtr",
+    "getDataDir(",
+    "ByRef<",
+    "SaberTrail_Awake",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
