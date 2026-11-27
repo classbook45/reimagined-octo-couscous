@@ -14,16 +14,27 @@ if not library.is_file() or library.stat().st_size == 0:
     library.parent.mkdir(parents=True, exist_ok=True)
     library.write_bytes(matches[0].read_bytes())
 
-# Hook 9.4 pulls Flamingo transitively, but QPM may keep its binary in
-# the package cache instead of copying it into this project's extern/libs.
+# Hook 9.4.3 declares Flamingo 1.2.1 as a transitive dependency.
+# QPM restores Hook's manifest but does not reliably materialize transitive
+# shared libraries into the top-level cache, so use its pinned release asset
+# as a deterministic fallback instead of assuming a cache directory exists.
 flamingo_library = Path("extern/libs/libflamingo.so")
 if not flamingo_library.is_file() or flamingo_library.stat().st_size == 0:
-    cache = Path.home() / ".local/share/QPM-RS/cache/flamingo/1.2.1"
-    matches = list(cache.rglob("libflamingo.so"))
-    if len(matches) != 1 or matches[0].stat().st_size == 0:
-        raise SystemExit(f"Expected one cached Flamingo 1.2.1 shared library, found {matches}")
-    flamingo_library.parent.mkdir(parents=True, exist_ok=True)
-    flamingo_library.write_bytes(matches[0].read_bytes())
+    cache_root = Path.home() / ".local/share/QPM-RS/cache"
+    matches = list(cache_root.rglob("libflamingo.so"))
+    matches = [p for p in matches if p.is_file() and p.stat().st_size > 0]
+    if len(matches) == 1:
+        flamingo_library.parent.mkdir(parents=True, exist_ok=True)
+        flamingo_library.write_bytes(matches[0].read_bytes())
+    elif len(matches) > 1:
+        raise SystemExit(f"Ambiguous cached Flamingo libraries: {matches}")
+    else:
+        import subprocess
+        flamingo_library.parent.mkdir(parents=True, exist_ok=True)
+        url = "https://github.com/QuestPackageManager/Flamingo/releases/download/v1.2.1/libflamingo.so"
+        subprocess.run(["curl", "--fail", "--location", "--retry", "3", "--output", str(flamingo_library), url], check=True)
+        if not flamingo_library.is_file() or flamingo_library.stat().st_size == 0:
+            raise SystemExit("Pinned Flamingo 1.2.1 download produced no shared library")
 
 cmake = Path("CMakeLists.txt")
 source = cmake.read_text()
