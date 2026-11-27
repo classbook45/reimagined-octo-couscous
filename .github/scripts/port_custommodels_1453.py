@@ -276,12 +276,12 @@ namespace CustomModels {
         bool MenuSaber = false;
         int TrailMode = 0;
         int MenuTrailMode = 0;
-        SaberSettings SaberSettings{};
-        TrailSettings TrailSettings{};
-        SaberSettings MenuSaberSettings{};
-        TrailSettings MenuTrailSettings{};
-        NoteSettings NotesSettings{};
-        WallSettings WallsSettings{};
+        CustomModels::SaberSettings SaberSettings{};
+        CustomModels::TrailSettings TrailSettings{};
+        CustomModels::SaberSettings MenuSaberSettings{};
+        CustomModels::TrailSettings MenuTrailSettings{};
+        CustomModels::NoteSettings NotesSettings{};
+        CustomModels::WallSettings WallsSettings{};
     };
 }
 
