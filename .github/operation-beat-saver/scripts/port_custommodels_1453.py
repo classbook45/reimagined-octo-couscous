@@ -645,8 +645,24 @@ replace_once(
 
 replace_once(
     "src/loading.cpp",
-    """    auto request = (*LoadFromMemoryAsync)(array, 0);""",
-    """    auto request = (*LoadFromMemoryAsync)(array, 0);
+    """    UnityEngine::AssetBundleCreateRequest* request = nullptr;
+    if (LoadFromMemoryAsync) {
+        request = (*LoadFromMemoryAsync)(array, 0);
+    } else {
+        ManagedSpanWrapper span{const_cast<char*>(bytes.data()), static_cast<int32_t>(bytes.size())};
+        auto nativeRequest = (*LoadFromMemoryAsyncInjected)(&span, 0);
+        if (nativeRequest.m_value)
+            request = UnityEngine::AssetBundleCreateRequest::BindingsMarshaller::ConvertToManaged(nativeRequest);
+    }""",
+    """    UnityEngine::AssetBundleCreateRequest* request = nullptr;
+    if (LoadFromMemoryAsync) {
+        request = (*LoadFromMemoryAsync)(array, 0);
+    } else {
+        ManagedSpanWrapper span{const_cast<char*>(bytes.data()), static_cast<int32_t>(bytes.size())};
+        auto nativeRequest = (*LoadFromMemoryAsyncInjected)(&span, 0);
+        if (nativeRequest.m_value)
+            request = UnityEngine::AssetBundleCreateRequest::BindingsMarshaller::ConvertToManaged(nativeRequest);
+    }
     if (!request) {
         logger.error("Unity returned a null AssetBundleCreateRequest for '{}'", file);
         auto& failed = bundles[file];
