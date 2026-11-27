@@ -575,6 +575,15 @@ jobs:
                   if dep_id in target_ranges:
                       dep["versionRange"] = target_ranges[dep_id]
 
+              # MetaCore 2 split Beat Saber game-state headers into MetaCoreBS.
+              # CustomModels still uses Game and Internals APIs from that package.
+              if not any(dep.get("id") == "metacore-bs" for dep in config.get("dependencies", [])):
+                  config.setdefault("dependencies", []).append({
+                      "id": "metacore-bs",
+                      "versionRange": "^1.0.1",
+                      "additionalData": {},
+                  })
+
           align(qpm)
           align(shared["config"])
 
@@ -607,6 +616,7 @@ jobs:
               "beatsaber-hook": "9.3.0",
               "bs-cordl": "4503.0.0",
               "metacore": "2.0.6",
+              "metacore-bs": "1.0.1",
               "custom-types": "0.21.2",
               "lapiz": "0.3.7",
               "rapidjson-macros": "3.0.0",
