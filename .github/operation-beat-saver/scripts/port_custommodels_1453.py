@@ -170,7 +170,7 @@ config_path.write_text(new_config)
 # getDataDir helper. Preserve the Quest folder layout used by CustomModels.
 main_path, main_header = read("include/main.hpp")
 if "getDataDir(std::string const& modId)" not in main_header:
-    anchor = '#include "beatsaber-hook/shared/utils/logging.hpp"'
+    anchor = '#include "beatsaber-hook/shared/utils.hpp"'
     if main_header.count(anchor) != 1:
         raise SystemExit("main.hpp no longer matches the pinned upstream include layout")
     helper = r'''
