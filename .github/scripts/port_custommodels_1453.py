@@ -585,6 +585,7 @@ trail_cpp.write_text(source)
 # shared/utils.hpp provides fileexists/writefile used by this translation unit.
 zip_cpp = Path("src/zip.cpp")
 source = zip_cpp.read_text()
+source = source.replace('#include "zip.hpp"\n', '#include "zip.hpp"\n#include <filesystem>\n')
 source = source.replace('"beatsaber-hook/shared/utils/utils.h"', '"beatsaber-hook/shared/utils.hpp"')
 zip_cpp.write_text(source)
 
