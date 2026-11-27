@@ -407,18 +407,36 @@ replace_once(
 add_include("src/loading.cpp", '#include "loading.hpp"', '#include "beatsaber-hook/shared/safeptr.hpp"')
 add_include("src/loading.cpp", '#include "loading.hpp"', '#include <cstdint>')
 add_include("src/loading.cpp", '#include "loading.hpp"', '#include <stdexcept>')
+add_include("src/loading.cpp", '#include "loading.hpp"', '#include "System/IntPtr.hpp"')
+add_include("src/loading.cpp", '#include "loading.hpp"', '#include "UnityEngine/Bindings/ManagedSpanWrapper.hpp"')
 replace_once(
     "src/loading.cpp",
     '''static auto LoadFromMemoryAsync = il2cpp_utils::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(
         "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"
     );''',
-    '''static auto LoadFromMemoryAsync = i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint32_t>(
+    '''using UnityEngine::Bindings::ManagedSpanWrapper;
+    static auto LoadFromMemoryAsync = i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint32_t>(
         "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"
     );
-    if (!LoadFromMemoryAsync)
-        throw std::runtime_error("Could not resolve Unity AssetBundle::LoadFromMemoryAsync_Internal");'''
+    static auto LoadFromMemoryAsyncInjected = i2c::resolve_icall<System::IntPtr, ManagedSpanWrapper*, uint32_t>(
+        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal_Injected"
+    );
+    if (!LoadFromMemoryAsync && !LoadFromMemoryAsyncInjected)
+        throw std::runtime_error("Could not resolve Unity AssetBundle LoadFromMemoryAsync (standard or injected)");'''
 )
-replace_once("src/loading.cpp", "auto request = LoadFromMemoryAsync(array, 0);", "auto request = (*LoadFromMemoryAsync)(array, 0);")
+replace_once(
+    "src/loading.cpp",
+    "auto request = LoadFromMemoryAsync(array, 0);",
+    """UnityEngine::AssetBundleCreateRequest* request = nullptr;
+    if (LoadFromMemoryAsync) {
+        request = (*LoadFromMemoryAsync)(array, 0);
+    } else {
+        ManagedSpanWrapper span{const_cast<char*>(bytes.data()), static_cast<int32_t>(bytes.size())};
+        auto nativeRequest = (*LoadFromMemoryAsyncInjected)(&span, 0);
+        if (nativeRequest.m_value)
+            request = UnityEngine::AssetBundleCreateRequest::BindingsMarshaller::ConvertToManaged(nativeRequest);
+    }"""
+)
 replace_once(
     "src/loading.cpp",
     "[request = safe_ptr<UnityEngine::AssetBundleCreateRequest>(*request), file]()",
