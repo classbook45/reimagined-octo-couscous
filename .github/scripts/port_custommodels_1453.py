@@ -577,6 +577,7 @@ settings_cpp.write_text(source)
 trail_cpp = Path("src/trail.cpp")
 source = trail_cpp.read_text()
 source = source.replace(".unsafePtr()", ".unsafe_ptr()")
+source = source.replace('#include "GlobalNamespace/TimeHelper.hpp"\n', '#include "UnityEngine/Time.hpp"\n')
 source = source.replace("GlobalNamespace::TimeHelper::get_time()", "UnityEngine::Time::get_time()")
 trail_cpp.write_text(source)
 
