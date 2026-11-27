@@ -46,7 +46,7 @@ for root in ROOTS:
 # functional without installing a hook against a nonexistent generated class.
 hooks_cpp = Path("src/hooks.cpp")
 source = hooks_cpp.read_text()
-source = source.replace('#include "hooks.hpp"\\n', '#include "hooks.hpp"\\n#include "System/String.hpp"\\n')
+source = source.replace('#include "hooks.hpp"\n', '#include "hooks.hpp"\n#include "System/String.hpp"\n')
 source = source.replace('#include "GlobalNamespace/TutorialScenesTransitionSetupDataSO.hpp"\n', "")
 pattern = re.compile(
     r"// not sure why hooking TutorialSceneSetupData_ctor doesn't work, maybe too small somehow\?\s*"
@@ -360,13 +360,18 @@ source = source.replace(
     'auto array = ArrayW<uint8_t>(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
 )
 source = source.replace('return request->isDone;', 'return request->get_isDone();')
-source = source.replace('i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\\n    );', 'i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\\n    ).value();')
+source = source.replace('i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\n    );', 'i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\n    ).value();')
 source = source.replace('asset = object->ptr();', 'asset = object;')
 loading_cpp.write_text(source)
 
+legacy_cpp = Path("src/legacy.cpp")
+source = legacy_cpp.read_text()
+source = source.replace('#include "legacy.hpp"\n', '#include "legacy.hpp"\n#include "beatsaber-hook/shared/exceptions.hpp"\n')
+legacy_cpp.write_text(source)
+
 material_cpp = Path("src/material.cpp")
 source = material_cpp.read_text()
-source = source.replace('#include "material.hpp"\\n', '#include "material.hpp"\\n#include "System/String.hpp"\\n')
+source = source.replace('#include "material.hpp"\n', '#include "material.hpp"\n#include "System/String.hpp"\n')
 material_cpp.write_text(source)
 
 hooks_cpp = Path("src/hooks.cpp")
@@ -438,6 +443,7 @@ source, removed = re.subn(
 )
 if removed != 1:
     raise SystemExit(f"Expected to remove one obsolete SaberTrail::Awake hook, removed {removed}")
+source = source.replace('if (!(*custom)->PreLateUpdate())', 'if (!custom->PreLateUpdate())')
 source = source.replace(
     'if (auto custom = i2c::try_cast<CustomModels::CustomSaberTrail>(self)) {',
     'if (auto custom = safe_ptr<SaberTrail*>(self).try_cast<CustomModels::CustomSaberTrail*>()) {'
