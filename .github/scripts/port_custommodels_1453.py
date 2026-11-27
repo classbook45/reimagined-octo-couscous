@@ -34,7 +34,6 @@ for root in ROOTS:
         )
         updated = updated.replace("il2cpp_functions::", "i2c::functions::")
         updated = updated.replace("il2cpp_utils::", "i2c::")
-        updated = updated.replace("i2c::resolve_icall", "i2c::functions::resolve_icall")
         updated = re.sub(r"\bSafePtr\b", "safe_ptr", updated)
         updated = updated.replace('"metacore/shared/game.hpp"', '"metacore-bs/shared/game.hpp"')
         updated = updated.replace('"metacore/shared/internals.hpp"', '"metacore-bs/shared/internals.hpp"')
@@ -47,6 +46,7 @@ for root in ROOTS:
 # functional without installing a hook against a nonexistent generated class.
 hooks_cpp = Path("src/hooks.cpp")
 source = hooks_cpp.read_text()
+source = source.replace('#include "hooks.hpp"\\n', '#include "hooks.hpp"\\n#include "System/String.hpp"\\n')
 source = source.replace('#include "GlobalNamespace/TutorialScenesTransitionSetupDataSO.hpp"\n', "")
 pattern = re.compile(
     r"// not sure why hooking TutorialSceneSetupData_ctor doesn't work, maybe too small somehow\?\s*"
@@ -347,6 +347,7 @@ for root in ROOTS:
         source = path.read_text()
         updated = re.sub(r"\bgetDataDir\(", "get_data_dir(", source)
         updated = updated.replace("il2cpp_utils::exceptions::StackTraceException", "i2c::trace_exception")
+        updated = updated.replace("i2c::exceptions::StackTraceException", "i2c::trace_exception")
         updated = updated.replace("i2c::functions::Init()", "i2c::functions::initialize()")
         if updated != source:
             path.write_text(updated)
@@ -359,8 +360,14 @@ source = source.replace(
     'auto array = ArrayW<uint8_t>(bytes.size());\n    std::copy(bytes.begin(), bytes.end(), array.begin());'
 )
 source = source.replace('return request->isDone;', 'return request->get_isDone();')
+source = source.replace('i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\\n    );', 'i2c::resolve_icall<UnityEngine::AssetBundleCreateRequest*, ArrayW<uint8_t>, uint>(\\n        "UnityEngine.AssetBundle::LoadFromMemoryAsync_Internal"\\n    ).value();')
 source = source.replace('asset = object->ptr();', 'asset = object;')
 loading_cpp.write_text(source)
+
+material_cpp = Path("src/material.cpp")
+source = material_cpp.read_text()
+source = source.replace('#include "material.hpp"\\n', '#include "material.hpp"\\n#include "System/String.hpp"\\n')
+material_cpp.write_text(source)
 
 hooks_cpp = Path("src/hooks.cpp")
 source = hooks_cpp.read_text()
@@ -461,7 +468,6 @@ for stale in (
     "ByRef<",
     "SaberTrail_Awake",
     "i2c::try_cast",
-    "i2c::resolve_icall",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
