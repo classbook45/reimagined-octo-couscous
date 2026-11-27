@@ -18,11 +18,14 @@ cmake = Path("CMakeLists.txt")
 source = cmake.read_text()
 anchor = "include(extern.cmake)"
 link = 'target_link_libraries(\u0024{COMPILE_ID} PRIVATE "\u0024{CMAKE_CURRENT_SOURCE_DIR}/extern/libs/libreflectcpp.so")'
+flamingo = 'target_link_libraries(\u0024{COMPILE_ID} PRIVATE "\u0024{CMAKE_CURRENT_SOURCE_DIR}/extern/libs/libflamingo.so")'
 if source.count(anchor) != 1:
     raise SystemExit("Expected exactly one include(extern.cmake) in CMakeLists.txt")
 if link not in source:
     source = source.replace(anchor, anchor + "\n\n# ConfigUtils 3 uses reflect-cpp; link its QPM-restored implementation explicitly.\n" + link, 1)
-    cmake.write_text(source)
+if flamingo not in source:
+    source = source.replace(link, link + "\n\n# Hook 9.4 delegates hook installation to Flamingo; link its QPM-restored implementation.\n" + flamingo, 1)
+cmake.write_text(source)
 
 defaults = Path("src/defaults.cpp")
 source = defaults.read_text()
@@ -33,7 +36,7 @@ if source.count(anchor) != 1:
 if include not in source:
     source = source.replace(anchor, anchor + "\n" + include, 1)
     defaults.write_text(source)
-print("Explicit reflect-cpp link and Cordl IList_1 template implementation are installed.")
+print("Explicit reflect-cpp and Flamingo links plus Cordl IList_1 template implementation are installed.")
 PY
 test -s extern/libs/libreflectcpp.so
 "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only extern/libs/libreflectcpp.so > /tmp/reflectcpp.symbols
@@ -42,3 +45,7 @@ grep -q 'rfl::json::Writer::Writer()' /tmp/reflectcpp.demangled
 grep -q 'yyjson_read_opts' /tmp/reflectcpp.symbols
 grep -n 'libreflectcpp.so' CMakeLists.txt
 grep -n 'zzzz__IList_1_impl.hpp' src/defaults.cpp
+
+test -s extern/libs/libflamingo.so
+"$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-nm" -D --defined-only extern/libs/libflamingo.so | c++filt | grep -F "flamingo::Install(flamingo::HookInfo&&)"
+grep -n "libflamingo.so" CMakeLists.txt
