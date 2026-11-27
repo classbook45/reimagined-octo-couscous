@@ -477,6 +477,11 @@ jobs:
       HOOK_RANGE: "^9.3.0"
 
     steps:
+      - name: Checkout workflow migration scripts
+        uses: actions/checkout@v4
+        with:
+          path: .workflow
+
       - name: Checkout pinned CustomModels source
         uses: actions/checkout@v4
         with:
@@ -547,6 +552,8 @@ jobs:
                   # CustomModels' upstream lockfile still pins MetaCore 1.4.0,
                   # which cannot coexist with the installed core-mod graph.
                   "metacore": "^2.0.6",
+                  "metacore-bs": "^1.0.1",
+                  "flamingo": "^1.3.1",
                   "custom-types": "^0.21.2",
                   # Lapiz 0.3.7 is the current line for Hook 9 / Cordl 4503
                   # and supports CustomTypes 0.21.x (unlike Lapiz 0.2.x).
@@ -562,10 +569,16 @@ jobs:
                   # supports the 0.21.x API used by this Beat Saber target.
                   "bsml": "^0.6.7",
               }
-              for dep in config.get("dependencies", []):
+              dependencies = config.setdefault("dependencies", [])
+              present = set()
+              for dep in dependencies:
                   dep_id = dep.get("id")
+                  present.add(dep_id)
                   if dep_id in target_ranges:
                       dep["versionRange"] = target_ranges[dep_id]
+              for dep_id in ("metacore-bs", "flamingo"):
+                  if dep_id not in present:
+                      dependencies.append({"id": dep_id, "versionRange": target_ranges[dep_id], "additionalData": {}})
 
           align(qpm)
           align(shared["config"])
@@ -599,6 +612,8 @@ jobs:
               "beatsaber-hook": "9.3.0",
               "bs-cordl": "4503.0.0",
               "metacore": "2.0.6",
+              "metacore-bs": "1.0.1",
+              "flamingo": "1.3.1",
               "custom-types": "0.21.2",
               "lapiz": "0.3.7",
               "rapidjson-macros": "3.0.0",
@@ -693,34 +708,11 @@ jobs:
           PY
           grep -n "CMAKE_CXX_STANDARD" CMakeLists.txt
 
-      - name: Migrate Hook 9 header locations used by CustomModels
+      - name: Port CustomModels source to Hook 9 and MetaCore 2
         working-directory: CustomModels
         run: |
           set -euo pipefail
-          python3 - <<'PY'
-          from pathlib import Path
-
-          replacements = {
-              'beatsaber-hook/shared/utils/hooking.hpp': 'beatsaber-hook/shared/hooking.hpp',
-              'beatsaber-hook/shared/utils/logging.hpp': 'beatsaber-hook/shared/utils.hpp',
-          }
-          changed = []
-          for root in (Path("include"), Path("src")):
-              for path in root.rglob("*"):
-                  if not path.is_file() or path.suffix not in {".h", ".hpp", ".cpp"}:
-                      continue
-                  source = path.read_text()
-                  updated = source
-                  for old, new in replacements.items():
-                      updated = updated.replace(old, new)
-                  if updated != source:
-                      path.write_text(updated)
-                      changed.append(str(path))
-          if not changed:
-              raise SystemExit("Expected legacy Hook header includes were not found; refusing a no-op migration")
-          print("Migrated Hook 9 header locations in:")
-          print("\\n".join(changed))
-          PY
+          python3 "$GITHUB_WORKSPACE/.workflow/.github/scripts/port_custommodels_1453.py"
 
       - name: Build CustomModels native library
         working-directory: CustomModels
@@ -765,7 +757,7 @@ jobs:
           cp CustomModels.qmod ../artifacts/
 
       - name: Upload CustomModels build and QMOD
-        if: always()
+        if: success()
         uses: actions/upload-artifact@v4
         with:
           name: custommodels-bs1.45.3
