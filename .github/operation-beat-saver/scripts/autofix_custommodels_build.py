@@ -3,7 +3,7 @@
 
 The helper has no network calls and no external AI dependency. It applies only
 explicit, reviewed source migrations or uniquely-resolved missing headers,
-then retries the real CMake build. Unknown/ambiguous diagnostics fail closed.
+then retries the real CMake build. Advanced mode allows eight diagnostics-driven repair passes and records each source change. Unknown/ambiguous diagnostics are reported rather than guessed at.
 """
 from pathlib import Path
 import hashlib
@@ -14,7 +14,7 @@ import sys
 ROOT = Path.cwd()
 SOURCE_DIRS = (ROOT / "include", ROOT / "src")
 DEPENDENCY_HEADERS = ROOT / "extern" / "includes"
-MAX_ATTEMPTS = 4
+MAX_ATTEMPTS = 8
 
 def source_files():
     for directory in SOURCE_DIRS:
@@ -69,6 +69,13 @@ def apply_reviewed_source_fixes():
         "src/trail.cpp": [
             ("_trailRenderer->_mesh.unsafePtr()", "_trailRenderer->_mesh.unsafe_ptr()"),
             ("GlobalNamespace::TimeHelper::get_time()", "UnityEngine::Time::get_time()"),
+        ],
+        "src/settings.cpp": [
+            ("auto& profiles = getConfig().Profiles;", "auto& profiles = getConfig().Profiles.GetValue();"),
+        ],
+        "include/settings.hpp": [
+            ('DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1}), int idx);',
+             'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 0}));'),
         ],
     }
     for relative, replacements in rules.items():
