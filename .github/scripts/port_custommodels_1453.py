@@ -587,6 +587,9 @@ for stale in (
     "ByRef<",
     "SaberTrail_Awake",
     "i2c::try_cast",
+    "FirstOrDefault",
+    "ArrayW<uint8_t>({",
+    "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize",
 ):
     if stale in all_cpp:
         raise SystemExit(f"Unmigrated 1.45.3 API reference remains: {stale}")
