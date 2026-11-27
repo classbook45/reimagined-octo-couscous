@@ -443,11 +443,7 @@ replace_once("src/hooks.cpp", ".try_cast<BombNoteController>()", ".try_cast<Bomb
 print("Applied guarded CustomModels -> Beat Saber 1.45.3 / Hook 9.3 source migrations.")
 
 
-# MetaCore 2 moved all Beat Saber UI helpers into MetaCoreBS.
-replace_once("src/settings.cpp", '"metacore/shared/ui.hpp"', '"metacore-bs/shared/ui.hpp"')
-
-# Hook 9.3 exposes utils.hpp; the legacy nested utils/utils.h path no longer exists.
-replace_once("src/zip.cpp", '"beatsaber-hook/shared/utils/utils.h"', '"beatsaber-hook/shared/utils.hpp"')
+# Header path migrations are handled by stage 09 before this API-port stage.
 
 # HMUI.TableView.IDataSource is an abstract interface in generated Cordl.
 # Hook's metadata_getter intentionally has no specialization for abstract
