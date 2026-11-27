@@ -499,6 +499,78 @@ source = note_cpp.read_text()
 source = source.replace('#include "note.hpp"\n', '#include "note.hpp"\n#include "System/String.hpp"\n')
 note_cpp.write_text(source)
 
+
+# Hook 9 / CORDL 4503: Array<T> no longer has MetaCore's FirstOrDefault extension.
+# Preserve first-match behavior using ArrayW's begin/end iterators.
+saber_cpp = Path("src/saber.cpp")
+source = saber_cpp.read_text()
+source, count = re.subn(
+    r"(?m)^(\\s*)if \\(auto child = trails->FirstOrDefault\\(\\[id = trail\\.info\\.trailId\\]\\(auto trail\\) \\{ return trail->trailId == id; \\}\\)\\)$",
+    r"\\1CustomSaberTrail* child = nullptr;\\n\\1for (auto* candidate : trails)\\n\\1    if (candidate && candidate->trailId == trail.info.trailId) { child = candidate; break; }\\n\\1if (child)",
+    source
+)
+if count != 2:
+    raise SystemExit(f"src/saber.cpp: expected two FirstOrDefault loops, migrated {count}")
+saber_cpp.write_text(source)
+
+# CORDL 4503 ArrayW must be allocated by size and populated; the old pointer/size
+# brace pair was not a supported constructor.
+selection_cpp = Path("src/selection.cpp")
+source = selection_cpp.read_text()
+source = source.replace('#include "selection.hpp"\\n', '#include "selection.hpp"\\n#include <algorithm>\\n')
+old = 'auto sprite = BSML::Utilities::LoadSpriteRaw(ArrayW<uint8_t>({(uint8_t*) bytes.data(), bytes.size()}));'
+new = 'ArrayW<uint8_t> imageBytes(bytes.size());\\n    std::copy(bytes.begin(), bytes.end(), imageBytes.begin());\\n    auto sprite = BSML::Utilities::LoadSpriteRaw(imageBytes);'
+if source.count(old) != 1:
+    raise SystemExit(f"src/selection.cpp: expected one obsolete ArrayW constructor, found {source.count(old)}")
+source = source.replace(old, new)
+selection_cpp.write_text(source)
+
+# TableView.IDataSource is an abstract interface in CORDL 4503. Hook 9 cannot
+# derive metadata from a pointer-to-abstract-method; resolve its MethodInfo by
+# declaring type/name/arity and pass that to CustomTypes' override macro.
+settings_hpp = Path("include/settings.hpp")
+source = settings_hpp.read_text()
+source = source.replace('#include "HMUI/TextSegmentedControl.hpp"\\n', '#include "HMUI/TextSegmentedControl.hpp"\\n#include "HMUI/TableView.hpp"\\n#include <utility>\\n#include "beatsaber-hook/shared/find.hpp"\\n')
+helper = """namespace CustomModels {
+using SelectionCellReturn = decltype(std::declval<HMUI::TableView::IDataSource*>()->CellForIdx(std::declval<HMUI::TableView*>(), int32_t{}));
+inline MethodInfo const* SelectionCellSizeMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1});
+}
+inline MethodInfo const* SelectionNumberOfCellsMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"NumberOfCells", 0});
+}
+inline MethodInfo const* SelectionCellForIdxMethod() {
+    return i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellForIdx", 2});
+}
+}
+
+"""
+if "SelectionCellSizeMethod" not in source:
+    source = source.replace("DECLARE_CLASS_CODEGEN(CustomModels, SettingsCoordinator", helper + "DECLARE_CLASS_CODEGEN(CustomModels, SettingsCoordinator")
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize, &HMUI::TableView::IDataSource::CellSize);',
+    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::CustomModels::SelectionCellSizeMethod(), int32_t idx);'
+)
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(int, NumberOfCells, &HMUI::TableView::IDataSource::NumberOfCells);',
+    'DECLARE_OVERRIDE_METHOD(int32_t, NumberOfCells, ::CustomModels::SelectionNumberOfCellsMethod());'
+)
+source = source.replace(
+    'DECLARE_OVERRIDE_METHOD_MATCH(HMUI::TableCell*, CellForIdx, &HMUI::TableView::IDataSource::CellForIdx, HMUI::TableView*, int idx);',
+    'DECLARE_OVERRIDE_METHOD(::CustomModels::SelectionCellReturn, CellForIdx, ::CustomModels::SelectionCellForIdxMethod(), HMUI::TableView* tableView, int32_t idx);'
+)
+if "DECLARE_OVERRIDE_METHOD_MATCH(float, CellSize" in source or "DECLARE_OVERRIDE_METHOD_MATCH(int, NumberOfCells" in source:
+    raise SystemExit("include/settings.hpp: abstract IDataSource methods were not migrated")
+settings_hpp.write_text(source)
+
+settings_cpp = Path("src/settings.cpp")
+source = settings_cpp.read_text()
+source = source.replace('float SelectionSettings::CellSize() {', 'float SelectionSettings::CellSize(int32_t) {')
+source = source.replace('int SelectionSettings::NumberOfCells() {', 'int32_t SelectionSettings::NumberOfCells() {')
+source = source.replace('HMUI::TableCell* SelectionSettings::CellForIdx(HMUI::TableView*, int idx) {',
+                        'SelectionCellReturn SelectionSettings::CellForIdx(HMUI::TableView*, int32_t idx) {')
+settings_cpp.write_text(source)
+
 # Fail closed if any known incompatible API references remain.
 all_cpp = "\n".join(p.read_text() for root in ROOTS for p in root.rglob("*") if p.is_file() and p.suffix in {".h", ".hpp", ".cpp"})
 for stale in (
