@@ -19,6 +19,7 @@ on:
     branches: [main, custommodels-1453-full-port]
     paths:
       - '.github/workflows/vr-beat-saver.yml'
+      - '.github/scripts/**'
       - '.github/operation-beat-saver/patches/**'
   workflow_dispatch:
     inputs:
