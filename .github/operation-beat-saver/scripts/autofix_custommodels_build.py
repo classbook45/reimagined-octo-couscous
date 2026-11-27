@@ -73,10 +73,6 @@ def apply_reviewed_source_fixes():
         "src/settings.cpp": [
             ("auto& profiles = getConfig().Profiles;", "auto& profiles = getConfig().Profiles.GetValue();"),
         ],
-        "include/settings.hpp": [
-            ('DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1}), int idx);',
-             'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 0}));'),
-        ],
     }
     for relative, replacements in rules.items():
         path = ROOT / relative
