@@ -191,7 +191,7 @@ inline std::filesystem::path getDataDir(std::string const& modId) {
     main_path.write_text(main_header.replace(anchor, anchor + "\n" + helper, 1))
 
 # Include current Hook 9 APIs explicitly where the migrated symbols are used.
-add_include("src/legacy.cpp", '#include "legacy.hpp"', '#include "beatsaber-hook/shared/exceptions.hpp"')
+add_include("src/legacy.cpp", '#include "legacy.hpp"', '#include <exception>')
 add_include("src/main.cpp", '#include "main.hpp"', '#include "beatsaber-hook/shared/api.hpp"')
 add_include("src/loading.cpp", '#include "loading.hpp"', '#include "beatsaber-hook/shared/safeptr.hpp"')
 add_include("src/loading.cpp", '#include "loading.hpp"', '#include <set>')
@@ -201,8 +201,8 @@ add_include("src/hooks.cpp", '#include "hooks.hpp"', '#include "beatsaber-hook/s
 
 replace_once(
     "src/legacy.cpp",
-    "i2c::exceptions::StackTraceException",
-    "i2c::trace_exception",
+    "il2cpp_utils::exceptions::StackTraceException",
+    "std::exception",
 )
 replace_once(
     "src/main.cpp",
@@ -289,7 +289,7 @@ replace_once(
 # Fail loudly if known obsolete APIs remain in the source after migration.
 for rel in ("src/legacy.cpp", "src/loading.cpp", "src/hooks.cpp", "src/main.cpp", "include/config.hpp"):
     _, data = read(rel)
-    for obsolete in ("i2c::exceptions::StackTraceException", "il2cpp_functions::Init()", "ByRef<", "il2cpp_utils::try_cast", "SafePtr("):
+    for obsolete in ("il2cpp_utils::exceptions::StackTraceException", "i2c::exceptions::StackTraceException", "il2cpp_functions::Init()", "ByRef<", "il2cpp_utils::try_cast", "SafePtr("):
         if obsolete in data:
             raise SystemExit(f"{rel}: obsolete API remains after migration: {obsolete}")
 
