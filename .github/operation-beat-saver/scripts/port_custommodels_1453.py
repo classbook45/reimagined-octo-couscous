@@ -540,3 +540,22 @@ for path in sorted((ROOT / "src").rglob("*")) + sorted((ROOT / "include").rglob(
         raise SystemExit(f"{path.relative_to(ROOT)} still uses removed RecordingToolManager::SetupData")
     if "setupData->colorScheme" in source:
         raise SystemExit(f"{path.relative_to(ROOT)} still accesses removed TutorialSceneSetupData::colorScheme")
+
+
+# ConfigUtils 3.x stores MAP_DEFAULT/CONFIG_VALUE entries in Value wrappers.
+# The actual mutable map is exposed through GetValue(); update every profile
+# management path, not only CurrentProfile().
+replace_count(
+    "src/settings.cpp",
+    "auto& profiles = getConfig().Profiles;",
+    "auto& profiles = getConfig().Profiles.GetValue();",
+    3,
+)
+
+# IDataSource::CellSize has zero parameters. The generated Cordl interface
+# declaration and the C++ implementation must agree exactly.
+replace_once(
+    "include/settings.hpp",
+    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 1}), int idx);',
+    'DECLARE_OVERRIDE_METHOD(float, CellSize, ::i2c::find_method({"HMUI", "TableView/IDataSource"}, {"CellSize", 0}));',
+)
