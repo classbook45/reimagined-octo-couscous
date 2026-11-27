@@ -388,138 +388,74 @@ jobs:
           PY
           python3 operation.py
 
-      - name: Build Vivify separately for Beat Saber 1.45.3
+      - name: Clone pinned CustomModels source into Operation Beat Saver
         env:
-          VIVIFY_REVISION: "76cdcb442d16c3a705809cc03911cde5fe007b17"
-          VIVIFY_GAME_TARGET: "1.45.3"
+          CUSTOMMODELS_REVISION: "28c049c2d24e0d9a0172d42db07ec80e72a3d62d"
         run: |
           set -euo pipefail
-          git clone https://github.com/trail-b1az3r/vivify-quest.git vivify
-          git -C vivify checkout --detach "$VIVIFY_REVISION"
-          cd vivify
+          git clone https://github.com/Metalit/CustomModels.git CustomModels
+          git -C CustomModels checkout --detach "$CUSTOMMODELS_REVISION"
+          git -C CustomModels submodule update --init --recursive
+          test "$(git -C CustomModels rev-parse HEAD)" = "$CUSTOMMODELS_REVISION"
+          echo "CustomModels source pinned at $CUSTOMMODELS_REVISION"
 
-          # Use the dedicated 1.45.3 dependency target. CustomJSONData and
-          # Tracks are supplied by the already-built local ports from this run.
-          python3 scripts/use-game-target.py 1.45.3 \
-            --local custom-json-data=0.24.6 \
-            --local tracks=2.5.5
-          rm -rf extern extern.cmake qpm.shared.json
-          cp mod.json mod.target.json
-
-          qpm ndk resolve -d
-          qpm restore --update
-
-          # Build the full feature set first.
-          cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -B build .
-          cmake --build build --parallel
-          FULL_SO="$(find build -name 'libVivify.so' -print -quit)"
-          test -n "$FULL_SO"
-          python3 scripts/check-so-dependencies.py "$FULL_SO"
-          mkdir -p ../artifacts
-          cp mod.json ../artifacts/vivify-mod-full.json
-          zip -j ../artifacts/Vivify-0.15.48-bs1.45.3.qmod mod.json "$FULL_SO"
-
-          # Build the upstream Lite feature set separately from a clean CMake
-          # directory so VIVIFY_LITE cannot leak from one build into the other.
-          rm -rf build
-          VIVIFY_GAME_TARGET=1.45.3 VIVIFY_LITE=1 \
-            cmake -G Ninja -DCMAKE_BUILD_TYPE=RelWithDebInfo -B build .
-          VIVIFY_GAME_TARGET=1.45.3 VIVIFY_LITE=1 \
-            cmake --build build --parallel
-          LITE_SO="$(find build -name 'libVivify.so' -print -quit)"
-          test -n "$LITE_SO"
-          python3 scripts/check-so-dependencies.py "$LITE_SO"
-          grep -aq ' (lite)' "$LITE_SO"
-          python3 - <<'PY'
-          import json
-          p = "mod.json"
-          data = json.load(open(p))
-          data["name"] = "Vivify Lite"
-          json.dump(data, open(p, "w"), indent=2)
-          PY
-          zip -j ../artifacts/Vivify-Lite-0.15.48-bs1.45.3.qmod mod.json "$LITE_SO"
-          cp mod.target.json mod.json
-
-          # Both packages must contain an ARM64 native library.
-          python3 - <<'PY'
-          import pathlib, struct, zipfile
-          for path in sorted(pathlib.Path("../artifacts").glob("Vivify*.qmod")):
-              with zipfile.ZipFile(path) as z:
-                  libs = [z.read(n) for n in z.namelist() if n.endswith(".so")]
-              if not libs or not any(
-                  len(b) >= 20 and b[:4] == b"\x7fELF" and b[4] == 2 and
-                  b[5] == 1 and struct.unpack("<H", b[18:20])[0] == 183
-                  for b in libs
-              ):
-                  raise SystemExit(f"ARM64 QMOD validation failed: {path}")
-              print(f"Validated Vivify QMOD: {path}")
-          PY
-
-      - name: Upload builds and diagnostics
-        if: always()
-        uses: actions/upload-artifact@v4
-        with:
-          name: operation-beat-saver-results
-          path: |
-            artifacts/
-            reports/
-          if-no-files-found: warn
-          retention-days: 14
-
-  custommodels:
-    name: Build CustomModels separately for Beat Saber 1.45.3
-    runs-on: ubuntu-latest
-    timeout-minutes: 120
-    env:
-      CUSTOMMODELS_REVISION: "28c049c2d24e0d9a0172d42db07ec80e72a3d62d"
-      ANDROID_NDK_VERSION: "29.0.14206865"
-      PACKAGE_VERSION: "1.45.3_30054"
-      CORDL_RANGE: "^4503.0.0"
-      HOOK_RANGE: "^9.3.0"
-
-    steps:
-      - name: Checkout pinned CustomModels source
-        uses: actions/checkout@v4
-        with:
-          repository: Metalit/CustomModels
-          ref: 28c049c2d24e0d9a0172d42db07ec80e72a3d62d
-          path: CustomModels
-          submodules: true
-          lfs: true
-
-      - name: Checkout Operation Beat Saver migration scripts
-        uses: actions/checkout@v4
-        with:
-          repository: classbook45/reimagined-octo-couscous
-          ref: ${{ github.sha }}
-          path: operation-beat-saver
-
-      - name: Set up Android SDK and pinned NDK
-        uses: android-actions/setup-android@v3
-        with:
-          packages: platform-tools
-      - name: Install pinned NDK
+      - name: Prepare CustomModels native build tools
         run: |
-          sdkmanager --install "platform-tools" "ndk;${ANDROID_NDK_VERSION}"
-          NDK_PATH="$ANDROID_SDK_ROOT/ndk/$ANDROID_NDK_VERSION"
-          test -f "$NDK_PATH/source.properties"
-          {
-            echo "ANDROID_NDK_HOME=$NDK_PATH"
-            echo "ANDROID_NDK_ROOT=$NDK_PATH"
-            echo "ANDROID_NDK_LATEST_HOME=$NDK_PATH"
-          } >> "$GITHUB_ENV"
-          grep "Pkg.Revision" "$NDK_PATH/source.properties"
-
-      - name: Install native build tools
-        run: |
+          set -euo pipefail
           sudo apt-get update
           sudo apt-get install -y cmake ninja-build build-essential binutils
           cmake --version
           ninja --version
           readelf --version
+          pwsh --version
 
-      - name: Install QPM and verify source revision
+      - name: Align only the Beat Saber toolchain and refresh dependency lock
         working-directory: CustomModels
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import json, os
+          from pathlib import Path
+
+          qpm_path = Path("qpm.json")
+          shared_path = Path("qpm.shared.json")
+          qpm = json.loads(qpm_path.read_text())
+          shared = json.loads(shared_path.read_text())
+
+          def align(config):
+              config.setdefault("workspace", {})["ndk"] = "^29.0.0"
+              target_ranges = {
+                  "beatsaber-hook": os.environ["HOOK_RANGE"],
+                  "bs-cordl": os.environ["CORDL_RANGE"],
+                  # The 1.45.3 mod catalog requires MetaCore 2.0.6.
+                  # CustomModels' upstream lockfile still pins MetaCore 1.4.0,
+                  # which cannot coexist with the installed core-mod graph.
+                  "metacore": "^2.0.6",
+                  "custom-types": "^0.21.2",
+                  # Lapiz 0.3.7 is the current line for Hook 9 / Cordl 4503
+                  # and supports CustomTypes 0.21.x (unlike Lapiz 0.2.x).
+                  "lapiz": "^0.3.7",
+                  "paper2_scotland2": "^4.8.0",
+                  # rapidjson-macros 2.1.0 requires Hook 6.x; v3.0.0 is
+                  # the compatible release used by current Hook 9.3 projects.
+                  "rapidjson-macros": "^3.0.0",
+                  # config-utils 2.x requires Hook 7.x and RapidJSON macros
+                  # 2.x; use the verified 3.0.0 line for Hook 9 projects.
+                  "config-utils": "^3.0.0",
+                  # BSML 0.4.x hard-pins CustomTypes 0.18.x; 0.6.7
+                  # supports the 0.21.x API used by this Beat Saber target.
+                  "bsml": "^0.6.7",
+              }
+              for dep in config.get("dependencies", []):
+                  dep_id = dep.get("id")
+                  if dep_id in target_ranges:
+                      dep["versionRange"] = target_ranges[dep_id]
+
+              # MetaCore 2 split Beat Saber game-state headers into MetaCoreBS.
+              # CustomModels still uses Game and Internals APIs from that package.
+              if not any(dep.get("id") == "metacore-bs" for dep in config.get("dependencies", [])):
+                  config.setdefault("dependencies", []).append({
+        CustomModels
         run: |
           set -euo pipefail
           curl -fsSL -o qpm.zip https://github.com/QuestPackageManager/QPM.CLI/releases/download/v1.5.11/qpm-linux-x64.zip
