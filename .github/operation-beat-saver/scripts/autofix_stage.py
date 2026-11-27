@@ -39,9 +39,9 @@ def repair_transient(stage, output):
         changed = p.returncode == 0
     if stage.startswith("clone-pinned-custommodels") and is_transient(output):
         target = ROOT / "CustomModels"
-        if target.exists() and not (target / ".git").exists():
+        if target.exists():
             import shutil
-            print("AUTO-REPAIR: removing incomplete CustomModels clone before retry.", flush=True)
+            print("AUTO-REPAIR: removing the incomplete/partially updated CustomModels checkout before a clean pinned retry.", flush=True)
             shutil.rmtree(target)
             changed = True
     if re.search(r"Could not resolve host|Temporary failure in name resolution|connection timed out|TLS handshake timeout", output, re.I):
