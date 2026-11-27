@@ -190,6 +190,97 @@ inline std::filesystem::path getDataDir(std::string const& modId) {
 '''
     main_path.write_text(main_header.replace(anchor, anchor + "\n" + helper, 1))
 
+# The 1.45.3 MetaCore split keeps Beat Saber game-state APIs in MetaCoreBS.
+replace_once("src/colors.cpp", '"metacore/shared/game.hpp"', '"metacore-bs/shared/game.hpp"')
+replace_once("src/colors.cpp", '"metacore/shared/internals.hpp"', '"metacore-bs/shared/internals.hpp"')
+replace_once("src/wall.cpp", '"metacore/shared/game.hpp"', '"metacore-bs/shared/game.hpp"')
+
+# Hook 9 moved ConfigUtils out of beatsaber-hook; use the standalone package.
+replace_once(
+    "src/legacy.cpp",
+    '"beatsaber-hook/shared/config/config-utils.hpp"',
+    '"config-utils/shared/config-utils.hpp"',
+)
+replace_once(
+    "src/main.cpp",
+    '"beatsaber-hook/shared/config/config-utils.hpp"',
+    '"config-utils/shared/config-utils.hpp"',
+)
+
+# RapidJSON macros are no longer re-exported by ConfigUtils 3.x.
+# Keep the mod's package/legacy JSON format while restoring the Color bridge.
+json_path, json_data = read("include/json.hpp")
+if json_data.count('#include "config-utils/shared/config-utils.hpp"') != 1:
+    raise SystemExit("json.hpp config-utils include changed; refusing migration")
+if '#include "rapidjson-macros/shared/macros.hpp"' not in json_data:
+    json_data = json_data.replace(
+        '#include "config-utils/shared/config-utils.hpp"',
+        '#include "config-utils/shared/config-utils.hpp"\\n#include "rapidjson-macros/shared/macros.hpp"\\n#include "UnityEngine/Color.hpp"',
+        1,
+    )
+color_marker = "namespace CustomModels {"
+color_bridge = r'''namespace ConfigUtils {
+    DECLARE_JSON_STRUCT(Color) {
+        VALUE(float, r);
+        VALUE(float, g);
+        VALUE(float, b);
+        VALUE(float, a);
+
+        Color() = default;
+        Color(float r, float g, float b, float a) : r(r), g(g), b(b), a(a) {}
+        Color(UnityEngine::Color const& other) : r(other.r), g(other.g), b(other.b), a(other.a) {}
+
+        Color& operator=(UnityEngine::Color const& other) {
+            r = other.r;
+            g = other.g;
+            b = other.b;
+            a = other.a;
+            return *this;
+        }
+
+        operator UnityEngine::Color() const { return UnityEngine::Color(r, g, b, a); }
+    };
+}
+
+'''
+if "namespace ConfigUtils {\\n    DECLARE_JSON_STRUCT(Color)" not in json_data:
+    if json_data.count(color_marker) != 1:
+        raise SystemExit("json.hpp namespace marker changed; refusing Color bridge insertion")
+    json_data = json_data.replace(color_marker, color_bridge + color_marker, 1)
+json_path.write_text(json_data)
+
+# The 1.45.3 generated class was renamed and Init gained its gameplay-info argument.
+add_include(
+    "src/hooks.cpp",
+    '#include "GlobalNamespace/GameplayCoreSceneSetupData.hpp"',
+    '#include "GlobalNamespace/GameplayAdditionalInformation.hpp"',
+)
+replace_once(
+    "src/hooks.cpp",
+    '#include "GlobalNamespace/TutorialScenesTransitionSetupDataSO.hpp"',
+    '#include "GlobalNamespace/TutorialScenesTransitionSetupData.hpp"',
+)
+replace_once(
+    "src/hooks.cpp",
+    '''MAKE_AUTO_HOOK_MATCH(
+    TutorialScenesTransitionSetupDataSO_Init,
+    &TutorialScenesTransitionSetupDataSO::Init,
+    void,
+    TutorialScenesTransitionSetupDataSO* self,
+    PlayerSpecificSettings* settings
+) {
+    TutorialScenesTransitionSetupDataSO_Init(self, settings);''',
+    '''MAKE_AUTO_HOOK_MATCH(
+    TutorialScenesTransitionSetupData_Init,
+    &TutorialScenesTransitionSetupData::Init,
+    void,
+    TutorialScenesTransitionSetupData* self,
+    PlayerSpecificSettings* settings,
+    GameplayAdditionalInformation* gameplayAdditionalInformation
+) {
+    TutorialScenesTransitionSetupData_Init(self, settings, gameplayAdditionalInformation);''',
+)
+
 # Include current Hook 9 APIs explicitly where the migrated symbols are used.
 add_include("src/legacy.cpp", '#include "legacy.hpp"', '#include <exception>')
 add_include("src/main.cpp", '#include "main.hpp"', '#include "beatsaber-hook/shared/api.hpp"')
