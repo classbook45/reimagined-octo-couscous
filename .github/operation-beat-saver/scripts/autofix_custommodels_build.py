@@ -140,7 +140,7 @@ def repair_undefined_symbols(output):
     repairs = {
         'flamingo::Install(flamingo::HookInfo&&)': 'libflamingo.so',
     }
-    symbols = sorted(set(re.findall(r'undefined symbol: ([^\\n]+)', output)))
+    symbols = sorted(set(re.findall(r'undefined symbol: ([^\n]+)', output)))
     changed = []
     for symbol in symbols:
         library_name = next((name for needle, name in repairs.items() if needle in symbol), None)
@@ -167,7 +167,7 @@ def repair_undefined_symbols(output):
             continue
         link = 'target_link_libraries(${COMPILE_ID} PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/extern/libs/' + library_name + '")'
         if link not in data:
-            data = data.replace(anchor, anchor + '\\n\\n# Auto-linked after verifying the exported symbol: ' + symbol + '\\n' + link, 1)
+            data = data.replace(anchor, anchor + '\n\n# Auto-linked after verifying the exported symbol: ' + symbol + '\n' + link, 1)
             cmake.write_text(data)
             changed.append('CMakeLists.txt: linked ' + library_name + ' for ' + symbol)
             print('AUTO-LINKED ' + library_name + ': verified export for ' + symbol)
